@@ -1,436 +1,374 @@
 import discord
 from discord.ext import commands
 from discord import app_commands
+import stripe
+import os
 import logging
 from datetime import datetime
 from utils import EmbedBuilder, Config, Permissions
-import secrets
 
 logger = logging.getLogger('PandaBot.Payments')
+
+# Configurar Stripe
+stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 
 class Payments(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
-        self.pending_payments = {}  # {payment_id: dados}
+        self.webhook_secret = os.getenv('STRIPE_WEBHOOK_SECRET')
     
     @app_commands.command(name="pagar", description="Criar link de pagamento")
     @app_commands.describe(
-        valor="Valor a cobrar (ex: 5.00)",
-        moeda="Moeda (BRL/EUR/USD)",
-        usuario="Usuário que vai pagar",
+        valor="Valor em centavos (ex: 1000 = R$10,00)",
+        moeda="Moeda (brl, usd, eur)",
         produto="Nome do produto (opcional)"
     )
     @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
     async def pagar_command(
-        self,
-        interaction: discord.Interaction,
-        valor: float,
-        moeda: str,
-        usuario: discord.Member,
-        produto: str = "Produto Digital"
+        self, 
+        interaction: discord.Interaction, 
+        valor: int,
+        moeda: str = "brl",
+        produto: str = None
     ):
-        """Criar cobrança"""
+        """Criar checkout do Stripe"""
         
         # Validar moeda
-        moedas_validas = {'BRL': 'R$', 'EUR': '€', 'USD': '$', 'GBP': '£'}
-        moeda_upper = moeda.upper()
-        
-        if moeda_upper not in moedas_validas:
+        moedas_validas = ['brl', 'usd', 'eur']
+        if moeda.lower() not in moedas_validas:
             embed = EmbedBuilder.error(
                 "Moeda Inválida",
-                f"Moedas aceitas: BRL, EUR, USD, GBP",
+                f"Use uma das moedas válidas: {', '.join(moedas_validas)}",
                 footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
             )
             return await interaction.response.send_message(embed=embed, ephemeral=True)
         
-        if valor <= 0:
+        # Validar valor mínimo (Stripe requer mínimo de 50 centavos)
+        if valor < 50:
             embed = EmbedBuilder.error(
                 "Valor Inválido",
-                "O valor deve ser maior que zero.",
+                "O valor mínimo é 50 centavos (0.50).",
                 footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
             )
             return await interaction.response.send_message(embed=embed, ephemeral=True)
         
-        # Gerar ID único
-        payment_id = secrets.token_hex(8)
-        symbol = moedas_validas[moeda_upper]
-        
-        # Salvar dados do pagamento
-        self.pending_payments[payment_id] = {
-            'user_id': str(usuario.id),
-            'staff_id': str(interaction.user.id),
-            'guild_id': str(interaction.guild.id),
-            'channel_id': str(interaction.channel.id),
-            'valor': valor,
-            'moeda': moeda_upper,
-            'symbol': symbol,
-            'produto': produto,
-            'status': 'pendente',
-            'created_at': datetime.utcnow().isoformat()
-        }
-        
-        # Criar embed de cobrança
-        embed = EmbedBuilder.create_embed(
-            "💳 Pagamento Criado",
-            f"{usuario.mention}, você tem um pagamento pendente!",
-            color=Config.COLORS['warning'],
-            thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
-            fields=[
-                {"name": "🛒 Produto", "value": produto, "inline": True},
-                {"name": "💰 Valor", "value": f"**{symbol} {valor:.2f}**", "inline": True},
-                {"name": "💱 Moeda", "value": moeda_upper, "inline": True},
-                {"name": "👤 Criado por", "value": interaction.user.mention, "inline": True},
-                {"name": "🔖 ID do Pagamento", "value": f"`{payment_id}`", "inline": True},
-                {"name": "\u200b", "value": "\u200b", "inline": True},
-                {
-                    "name": "📋 Como Pagar",
-                    "value": "**PIX (Brasil):**\n"
-                            "• Chave: `suachavepix@exemplo.com`\n"
-                            "• Nome: Panda Store\n\n"
-                            "**PayPal:**\n"
-                            "• paypal.me/pandastore\n\n"
-                            "**Após pagar, envie o comprovante aqui!**",
-                    "inline": False
-                }
-            ],
-            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-        )
-        
-        view = PaymentView(self.bot, payment_id, usuario)
-        
-        # Enviar no canal
-        await interaction.response.send_message(
-            content=f"{usuario.mention} 💳 **Novo Pagamento**",
-            embed=embed,
-            view=view
-        )
-        
-        # Tentar enviar DM
         try:
-            dm_embed = EmbedBuilder.warning(
-                "💳 Novo Pagamento",
-                f"Você tem um novo pagamento de **{symbol} {valor:.2f}**!",
+            await interaction.response.defer()
+            
+            # Nome do produto
+            product_name = produto or "Produto Panda Store"
+            
+            # URL de sucesso/cancelamento
+            base_url = os.getenv('REDIRECT_URI', 'https://seu-dominio.railway.app').split('/oauth')[0]
+            success_url = f"{base_url}/payment/success?session_id={{CHECKOUT_SESSION_ID}}"
+            cancel_url = f"{base_url}/payment/cancel"
+            
+            # Criar sessão de checkout
+            checkout_session = stripe.checkout.Session.create(
+                payment_method_types=['card'],
+                line_items=[{
+                    'price_data': {
+                        'currency': moeda.lower(),
+                        'unit_amount': valor,
+                        'product_data': {
+                            'name': product_name,
+                            'description': f"Compra realizada no {interaction.guild.name}",
+                            'images': [interaction.guild.icon.url] if interaction.guild.icon else []
+                        },
+                    },
+                    'quantity': 1,
+                }],
+                mode='payment',
+                success_url=success_url,
+                cancel_url=cancel_url,
+                metadata={
+                    'guild_id': str(interaction.guild.id),
+                    'channel_id': str(interaction.channel.id),
+                    'user_id': str(interaction.user.id),
+                    'username': interaction.user.name,
+                    'product': product_name,
+                    'staff_id': str(interaction.user.id),  # Quem criou o link
+                    'timestamp': str(int(datetime.utcnow().timestamp()))
+                }
+            )
+            
+            # Formatação do valor
+            valor_formatado = self.format_currency(valor, moeda)
+            
+            # Embed com link de pagamento
+            embed = EmbedBuilder.create_embed(
+                "💳 Link de Pagamento Criado",
+                f"Clique no botão abaixo para realizar o pagamento.",
+                color=Config.COLORS['success'],
+                thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
                 fields=[
-                    {"name": "🛒 Produto", "value": produto},
-                    {"name": "💰 Valor", "value": f"{symbol} {valor:.2f}"},
-                    {"name": "🔖 ID", "value": f"`{payment_id}`"}
+                    {
+                        "name": "🛒 Produto",
+                        "value": product_name,
+                        "inline": True
+                    },
+                    {
+                        "name": "💰 Valor",
+                        "value": valor_formatado,
+                        "inline": True
+                    },
+                    {
+                        "name": "💳 Moeda",
+                        "value": moeda.upper(),
+                        "inline": True
+                    },
+                    {
+                        "name": "⏰ Validade",
+                        "value": "24 horas",
+                        "inline": True
+                    },
+                    {
+                        "name": "🔒 Segurança",
+                        "value": "Pagamento processado via Stripe",
+                        "inline": True
+                    },
+                    {
+                        "name": "📧 Confirmação",
+                        "value": "Você receberá um recibo por email",
+                        "inline": True
+                    }
                 ],
                 footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
             )
-            await usuario.send(embed=dm_embed)
-        except:
-            logger.warning(f"Não foi possível enviar DM para {usuario.id}")
-        
-        # Log
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
-        if log_channel:
-            log_embed = EmbedBuilder.warning(
-                "💳 NOVO PAGAMENTO CRIADO",
-                f"**Cliente:** {usuario.mention}\n"
-                f"**Staff:** {interaction.user.mention}\n"
-                f"**Valor:** {symbol} {valor:.2f}\n"
-                f"**Produto:** {produto}\n"
-                f"**ID:** `{payment_id}`\n"
-                f"**Status:** ⏳ Aguardando Pagamento",
-                thumbnail=usuario.display_avatar.url,
-                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-            )
-            await log_channel.send(embed=log_embed)
-        
-        # Salvar no banco
-        self.bot.db.add_log(
-            'payment',
-            str(usuario.id),
-            str(interaction.guild.id),
-            'created',
-            f"⏳ AGUARDANDO: {symbol} {valor:.2f} - {produto} - ID: {payment_id}"
-        )
-    
-    @app_commands.command(name="confirmar-pagamento", description="Confirmar que o pagamento foi recebido")
-    @app_commands.describe(payment_id="ID do pagamento")
-    @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
-    async def confirmar_command(self, interaction: discord.Interaction, payment_id: str):
-        """Confirmar pagamento manualmente"""
-        
-        payment_data = self.pending_payments.get(payment_id)
-        
-        if not payment_data:
-            embed = EmbedBuilder.error(
-                "Pagamento Não Encontrado",
-                f"Nenhum pagamento com ID `{payment_id}` foi encontrado.",
-                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        if payment_data['status'] == 'confirmado':
-            embed = EmbedBuilder.warning(
-                "Já Confirmado",
-                "Este pagamento já foi confirmado anteriormente.",
-                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        # Atualizar status
-        payment_data['status'] = 'confirmado'
-        payment_data['confirmed_by'] = str(interaction.user.id)
-        payment_data['confirmed_at'] = datetime.utcnow().isoformat()
-        
-        # Buscar informações
-        user = await self.bot.fetch_user(int(payment_data['user_id']))
-        guild = self.bot.get_guild(int(payment_data['guild_id']))
-        channel = guild.get_channel(int(payment_data['channel_id']))
-        
-        symbol = payment_data['symbol']
-        valor = payment_data['valor']
-        produto = payment_data['produto']
-        
-        # Criar recibo
-        timestamp = int(datetime.utcnow().timestamp())
-        
-        receipt_embed = EmbedBuilder.success(
-            "✅ PAGAMENTO CONFIRMADO",
-            "**O pagamento foi confirmado e aprovado!**",
-            thumbnail=user.display_avatar.url,
-            fields=[
-                {
-                    "name": "━━━━━━ 📋 INFORMAÇÕES DO CLIENTE ━━━━━━",
-                    "value": f"**Cliente:** {user.mention}\n**Nome:** `{user.name}`\n**ID:** `{user.id}`",
-                    "inline": False
-                },
-                {
-                    "name": "━━━━━━ 🛒 DETALHES DA COMPRA ━━━━━━",
-                    "value": f"**Produto:** {produto}\n**Confirmado por:** {interaction.user.mention}",
-                    "inline": False
-                },
-                {
-                    "name": "💰 Valor",
-                    "value": f"**{symbol} {valor:.2f}**",
-                    "inline": True
-                },
-                {
-                    "name": "💱 Moeda",
-                    "value": payment_data['moeda'],
-                    "inline": True
-                },
-                {
-                    "name": "✅ Status",
-                    "value": "**CONFIRMADO**",
-                    "inline": True
-                },
-                {
-                    "name": "📅 Data",
-                    "value": f"<t:{timestamp}:F>",
-                    "inline": True
-                },
-                {
-                    "name": "🔖 ID do Pagamento",
-                    "value": f"`{payment_id}`",
-                    "inline": True
-                },
-                {
-                    "name": "\u200b",
-                    "value": "\u200b",
-                    "inline": True
-                },
-                {
-                    "name": "━━━━━━ 📝 OBSERVAÇÕES ━━━━━━",
-                    "value": "✅ Pagamento confirmado com sucesso\n✅ Produto será entregue em breve\n✅ Guarde este recibo para referência",
-                    "inline": False
-                }
-            ],
-            footer_icon=guild.icon.url if guild.icon else None
-        )
-        
-        # Enviar recibo no canal de compra
-        if channel:
-            await channel.send(
-                content=f"🎉 {user.mention} **PAGAMENTO CONFIRMADO!** 🎉",
-                embed=receipt_embed
-            )
-        
-        # Enviar DM ao cliente
-        try:
-            dm_embed = EmbedBuilder.success(
-                "✅ Pagamento Confirmado!",
-                f"Seu pagamento foi confirmado!\n\n"
-                f"**Produto:** {produto}\n"
-                f"**Valor:** {symbol} {valor:.2f}\n"
-                f"**Data:** <t:{timestamp}:F>\n\n"
-                f"🎉 Obrigado pela sua compra!",
-                thumbnail=guild.icon.url if guild.icon else None,
-                footer_icon=guild.icon.url if guild.icon else None
-            )
-            await user.send(embed=dm_embed)
-        except:
-            logger.warning(f"Não foi possível enviar DM para {user.id}")
-        
-        # Log
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
-        if log_channel:
-            log_embed = EmbedBuilder.success(
-                "✅ PAGAMENTO CONFIRMADO",
-                f"**Cliente:** {user.mention}\n"
-                f"**Staff:** {interaction.user.mention}\n"
-                f"**Valor:** {symbol} {valor:.2f}\n"
-                f"**Produto:** {produto}\n"
-                f"**ID:** `{payment_id}`",
-                thumbnail=user.display_avatar.url,
-                footer_icon=guild.icon.url if guild.icon else None
-            )
-            await log_channel.send(embed=log_embed)
-        
-        # Salvar no banco
-        self.bot.db.add_log(
-            'payment',
-            str(user.id),
-            str(guild.id),
-            'confirmed',
-            f"✅ CONFIRMADO: {symbol} {valor:.2f} - {produto} - ID: {payment_id} - Por: {interaction.user.name}"
-        )
-        
-        # Responder
-        success_embed = EmbedBuilder.success(
-            "Pagamento Confirmado",
-            f"O pagamento de **{symbol} {valor:.2f}** foi confirmado!\n\n"
-            f"Recibo enviado para {user.mention}",
-            footer_icon=guild.icon.url if guild.icon else None
-        )
-        await interaction.response.send_message(embed=success_embed, ephemeral=True)
-    
-    @app_commands.command(name="cancelar-pagamento", description="Cancelar um pagamento pendente")
-    @app_commands.describe(payment_id="ID do pagamento")
-    @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
-    async def cancelar_command(self, interaction: discord.Interaction, payment_id: str):
-        """Cancelar pagamento"""
-        
-        payment_data = self.pending_payments.get(payment_id)
-        
-        if not payment_data:
-            embed = EmbedBuilder.error(
-                "Pagamento Não Encontrado",
-                f"Nenhum pagamento com ID `{payment_id}` foi encontrado.",
-                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        # Remover pagamento
-        del self.pending_payments[payment_id]
-        
-        user = await self.bot.fetch_user(int(payment_data['user_id']))
-        symbol = payment_data['symbol']
-        valor = payment_data['valor']
-        
-        # Log
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
-        if log_channel:
-            log_embed = EmbedBuilder.error(
-                "❌ PAGAMENTO CANCELADO",
-                f"**Cliente:** {user.mention}\n"
-                f"**Cancelado por:** {interaction.user.mention}\n"
-                f"**Valor:** {symbol} {valor:.2f}\n"
-                f"**ID:** `{payment_id}`",
-                thumbnail=user.display_avatar.url,
-                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-            )
-            await log_channel.send(embed=log_embed)
-        
-        # Salvar no banco
-        self.bot.db.add_log(
-            'payment',
-            str(user.id),
-            str(interaction.guild.id),
-            'cancelled',
-            f"❌ CANCELADO: {symbol} {valor:.2f} - ID: {payment_id} - Por: {interaction.user.name}"
-        )
-        
-        embed = EmbedBuilder.success(
-            "Pagamento Cancelado",
-            f"O pagamento `{payment_id}` foi cancelado.",
-            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
-    
-    @app_commands.command(name="listar-pagamentos", description="Ver pagamentos pendentes")
-    @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
-    async def listar_command(self, interaction: discord.Interaction):
-        """Listar pagamentos pendentes"""
-        
-        if not self.pending_payments:
-            embed = EmbedBuilder.info(
-                "Sem Pagamentos Pendentes",
-                "Não há pagamentos pendentes no momento.",
-                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        description = ""
-        for payment_id, data in list(self.pending_payments.items())[:10]:
-            user = await self.bot.fetch_user(int(data['user_id']))
-            symbol = data['symbol']
-            valor = data['valor']
-            status = "✅ Confirmado" if data['status'] == 'confirmado' else "⏳ Pendente"
             
-            description += f"\n**ID:** `{payment_id}`\n"
-            description += f"👤 {user.mention} | {symbol} {valor:.2f} | {status}\n"
+            # View com botão de pagamento
+            view = PaymentView(checkout_session.url)
+            
+            await interaction.followup.send(embed=embed, view=view)
+            
+            # Log
+            log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = EmbedBuilder.info(
+                    "💳 Link de Pagamento Criado",
+                    f"**Produto:** {product_name}\n**Valor:** {valor_formatado}\n**Moeda:** {moeda.upper()}\n**Criado por:** {interaction.user.mention}\n**Canal:** {interaction.channel.mention}",
+                    thumbnail=interaction.user.display_avatar.url,
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+                await log_channel.send(embed=log_embed)
+            
+            # Salvar no banco de dados (opcional)
+            self.bot.db.add_log(
+                'payment', 
+                str(interaction.user.id), 
+                str(interaction.guild.id),
+                'checkout_created',
+                f"Produto: {product_name}, Valor: {valor_formatado}, Session: {checkout_session.id}"
+            )
+            
+        except stripe.error.StripeError as e:
+            logger.error(f"Erro do Stripe: {e}")
+            embed = EmbedBuilder.error(
+                "Erro ao Criar Pagamento",
+                f"Ocorreu um erro com o Stripe:\n```{str(e)}```",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
         
-        embed = EmbedBuilder.create_embed(
-            "💳 Pagamentos Pendentes",
-            description,
-            color=Config.COLORS['info'],
-            fields=[
-                {"name": "📊 Total", "value": str(len(self.pending_payments)), "inline": True}
-            ],
-            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-        )
-        
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        except Exception as e:
+            logger.error(f"Erro ao criar pagamento: {e}")
+            embed = EmbedBuilder.error(
+                "Erro Inesperado",
+                f"Não foi possível criar o link de pagamento:\n```{str(e)}```",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+    
+    def format_currency(self, amount_cents: int, currency: str) -> str:
+        """Formatar valor em moeda"""
+        symbols = {
+            'brl': 'R$',
+            'usd': '$',
+            'eur': '€'
+        }
+        symbol = symbols.get(currency.lower(), currency.upper())
+        value = amount_cents / 100
+        return f"{symbol} {value:,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    
+    async def handle_successful_payment(self, session):
+        """Processar pagamento bem-sucedido"""
+        try:
+            metadata = session.metadata
+            
+            guild_id = metadata.get('guild_id')
+            channel_id = metadata.get('channel_id')
+            user_id = metadata.get('user_id')
+            username = metadata.get('username')
+            product = metadata.get('product')
+            
+            if not all([guild_id, channel_id]):
+                logger.error("Metadados incompletos no pagamento")
+                return
+            
+            # Buscar canal
+            channel = self.bot.get_channel(int(channel_id))
+            if not channel:
+                logger.error(f"Canal {channel_id} não encontrado")
+                return
+            
+            guild = self.bot.get_guild(int(guild_id))
+            
+            # Formatar valor
+            amount = session.amount_total
+            currency = session.currency
+            valor_formatado = self.format_currency(amount, currency)
+            
+            # Embed de confirmação no canal
+            embed = EmbedBuilder.success(
+                "✅ Pagamento Confirmado!",
+                f"O pagamento foi processado com sucesso!",
+                thumbnail=guild.icon.url if guild and guild.icon else None,
+                fields=[
+                    {
+                        "name": "🛒 Produto",
+                        "value": product or "Produto",
+                        "inline": True
+                    },
+                    {
+                        "name": "💰 Valor Pago",
+                        "value": valor_formatado,
+                        "inline": True
+                    },
+                    {
+                        "name": "👤 Cliente",
+                        "value": username,
+                        "inline": True
+                    },
+                    {
+                        "name": "📧 Email",
+                        "value": session.customer_details.email if session.customer_details else "N/A",
+                        "inline": True
+                    },
+                    {
+                        "name": "🔢 ID da Transação",
+                        "value": f"`{session.payment_intent}`",
+                        "inline": False
+                    },
+                    {
+                        "name": "✅ Status",
+                        "value": "**PAGO**",
+                        "inline": True
+                    },
+                    {
+                        "name": "📅 Data",
+                        "value": f"<t:{int(datetime.utcnow().timestamp())}:F>",
+                        "inline": True
+                    }
+                ],
+                footer_icon=guild.icon.url if guild and guild.icon else None
+            )
+            
+            await channel.send(embed=embed)
+            
+            # Tentar enviar DM ao usuário
+            if user_id:
+                try:
+                    user = await self.bot.fetch_user(int(user_id))
+                    
+                    dm_embed = EmbedBuilder.success(
+                        "✅ Pagamento Confirmado!",
+                        f"Seu pagamento foi processado com sucesso!",
+                        thumbnail=guild.icon.url if guild and guild.icon else None,
+                        fields=[
+                            {
+                                "name": "🛒 Produto",
+                                "value": product or "Produto",
+                                "inline": False
+                            },
+                            {
+                                "name": "💰 Valor",
+                                "value": valor_formatado,
+                                "inline": True
+                            },
+                            {
+                                "name": "📧 Recibo",
+                                "value": f"Enviado para {session.customer_details.email}" if session.customer_details else "Verifique seu email",
+                                "inline": False
+                            },
+                            {
+                                "name": "🔢 ID da Transação",
+                                "value": f"`{session.payment_intent}`",
+                                "inline": False
+                            }
+                        ],
+                        footer_icon=guild.icon.url if guild and guild.icon else None
+                    )
+                    
+                    await user.send(embed=dm_embed)
+                    logger.info(f"✅ DM de confirmação enviado para {username}")
+                
+                except Exception as e:
+                    logger.warning(f"Não foi possível enviar DM para {user_id}: {e}")
+            
+            # Log no canal de logs
+            log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = EmbedBuilder.success(
+                    "💳 Pagamento Recebido",
+                    f"Um pagamento foi confirmado via Stripe!",
+                    fields=[
+                        {
+                            "name": "Cliente",
+                            "value": username,
+                            "inline": True
+                        },
+                        {
+                            "name": "Produto",
+                            "value": product or "N/A",
+                            "inline": True
+                        },
+                        {
+                            "name": "Valor",
+                            "value": valor_formatado,
+                            "inline": True
+                        },
+                        {
+                            "name": "Email",
+                            "value": session.customer_details.email if session.customer_details else "N/A",
+                            "inline": True
+                        },
+                        {
+                            "name": "ID Stripe",
+                            "value": f"`{session.id}`",
+                            "inline": False
+                        }
+                    ],
+                    footer_icon=guild.icon.url if guild and guild.icon else None
+                )
+                await log_channel.send(embed=log_embed)
+            
+            # Salvar no banco de dados
+            self.bot.db.add_log(
+                'payment',
+                user_id,
+                guild_id,
+                'payment_completed',
+                f"Produto: {product}, Valor: {valor_formatado}, Session: {session.id}"
+            )
+            
+            logger.info(f"✅ Pagamento processado: {valor_formatado} de {username}")
+            
+        except Exception as e:
+            logger.error(f"Erro ao processar pagamento bem-sucedido: {e}")
 
 class PaymentView(discord.ui.View):
-    def __init__(self, bot, payment_id: str, user: discord.Member):
+    """View com botão de pagamento"""
+    
+    def __init__(self, payment_url: str):
         super().__init__(timeout=None)
-        self.bot = bot
-        self.payment_id = payment_id
-        self.user = user
-    
-    @discord.ui.button(label="✅ Confirmar Pagamento (Staff)", style=discord.ButtonStyle.success, emoji="✅")
-    async def confirm_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Botão para staff confirmar"""
-        if not Permissions.is_staff(interaction.user):
-            return await interaction.response.send_message("❌ Apenas staff pode confirmar!", ephemeral=True)
         
-        # Executar comando de confirmação
-        cog = self.bot.get_cog('Payments')
-        if cog:
-            await cog.confirmar_command.__call__(interaction, self.payment_id)
-    
-    @discord.ui.button(label="❓ Ajuda", style=discord.ButtonStyle.secondary, emoji="❓")
-    async def help_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Botão de ajuda"""
-        embed = EmbedBuilder.info(
-            "❓ Como Pagar",
-            "**Métodos de Pagamento:**\n\n"
-            "**💳 PIX (Brasil)**\n"
-            "• Copie a chave PIX fornecida acima\n"
-            "• Faça a transferência no seu app bancário\n"
-            "• Envie o comprovante aqui no chat\n\n"
-            "**💰 PayPal**\n"
-            "• Acesse o link fornecido\n"
-            "• Complete o pagamento\n"
-            "• Envie o comprovante aqui\n\n"
-            "**📸 Enviar Comprovante:**\n"
-            "• Tire um print/foto do comprovante\n"
-            "• Envie aqui neste canal\n"
-            "• Aguarde a confirmação da staff\n\n"
-            "**⏰ Após Confirmar:**\n"
-            "• A staff verificará seu pagamento\n"
-            "• Você receberá uma notificação\n"
-            "• Seu produto será entregue!\n\n"
-            "**📧 Dúvidas?**\n"
-            "Entre em contato com a staff!",
-            thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
-            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-        )
-        await interaction.response.send_message(embed=embed, ephemeral=True)
+        # Adicionar botão com link do Stripe
+        self.add_item(discord.ui.Button(
+            label="Pagar com Stripe",
+            emoji="💳",
+            style=discord.ButtonStyle.link,
+            url=payment_url
+        ))
 
 async def setup(bot):
     await bot.add_cog(Payments(bot))
