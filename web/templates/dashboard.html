@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+
+{% block extra_css %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <div class="header">
+        <div>
+            <h1>📊 Dashboard Panda Store</h1>
+            <p>Painel de Administração</p>
+        </div>
+        <div class="header-actions">
+            <button class="btn-primary" onclick="refreshStats()">🔄 Atualizar</button>
+            <button class="btn-danger" onclick="logout()">🚪 Sair</button>
+        </div>
+    </div>
+
+    <div class="stats-grid">
+        <div class="stat-card">
+            <div class="stat-icon">👥</div>
+            <div class="stat-title">Usuários OAuth2</div>
+            <div class="stat-value">{{ stats.total_users }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🏠</div>
+            <div class="stat-title">Servidores</div>
+            <div class="stat-value">{{ guilds }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🎫</div>
+            <div class="stat-title">Tickets</div>
+            <div class="stat-value">{{ stats.total_tickets }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-icon">🚫</div>
+            <div class="stat-title">Blacklist</div>
+            <div class="stat-value">{{ stats.total_blacklisted }}</div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <h2>📈 Atividade dos Últimos 7 Dias</h2>
+        <canvas id="activityChart"></canvas>
+    </div>
+</div>
+
+<script>
+async function refreshStats() {
+    try {
+        const response = await fetch('/api/stats');
+        if (response.ok) {
+            location.reload();
+        }
+    } catch (error) {
+        console.error('Erro ao atualizar:', error);
+    }
+}
+
+function logout() {
+    document.cookie = 'auth=; Max-Age=0';
+    window.location.href = '/';
+}
+
+// Gráfico de atividade
+const ctx = document.getElementById('activityChart').getContext('2d');
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: ['Dia 1', 'Dia 2', 'Dia 3', 'Dia 4', 'Dia 5', 'Dia 6', 'Dia 7'],
+        datasets: [{
+            label: 'Registros OAuth2',
+            data: [12, 19, 3, 5, 2, 3, 7],
+            borderColor: '#3498db',
+            backgroundColor: 'rgba(52, 152, 219, 0.1)',
+            tension: 0.4
+        }]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: true,
+        plugins: {
+            legend: {
+                position: 'top',
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

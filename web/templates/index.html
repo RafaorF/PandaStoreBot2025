@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="panda">🐼</div>
+    <h1>{{ bot_name }}</h1>
+    <p>Sistema OAuth2 e Gerenciamento de Tickets</p>
+    <div class="stats">
+        <span>🏠 {{ guild_count }} Servidores</span>
+    </div>
+    <a href="/dashboard" class="btn">Acessar Painel</a>
+</div>
+{% endblock %}

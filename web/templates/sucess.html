@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="success">✅</div>
+    <h1>Autorização Concluída!</h1>
+    <p>Olá, <strong>{{ username }}</strong>!</p>
+    <p>Você autorizou o bot com sucesso. Agora você pode ser adicionado de volta ao servidor automaticamente!</p>
+    <div class="info">
+        <p><strong>Status:</strong> ✅ Ativo</p>
+        <p><strong>Validade:</strong> 7 dias (renovado automaticamente)</p>
+    </div>
+    <p style="margin-top: 30px; font-size: 14px;">Você pode fechar esta janela.</p>
+</div>
+{% endblock %}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="container">
+    <div class="error-icon">❌</div>
+    <h1>Erro na Autorização</h1>
+    <p>{{ error }}</p>
+    <p style="margin-top: 20px;">Tente novamente usando <strong>/oauth</strong> no Discord.</p>
+</div>
+{% endblock %}

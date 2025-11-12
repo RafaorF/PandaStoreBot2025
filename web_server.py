@@ -1,16 +1,19 @@
-from quart import Quart, request, jsonify, render_template_string, redirect
+from quart import Quart, request, jsonify, render_template, redirect, send_file
 import aiohttp
 import os
 import logging
 from datetime import datetime, timedelta
 from utils import Config
+import discord
 
 logger = logging.getLogger('PandaBot.WebServer')
 
 class WebServer:
     def __init__(self, bot):
         self.bot = bot
-        self.app = Quart(__name__)
+        self.app = Quart(__name__, 
+                        template_folder='web/templates',
+                        static_folder='web/static')
         self.setup_routes()
         
         self.client_id = os.getenv('CLIENT_ID')
@@ -18,6 +21,7 @@ class WebServer:
         self.redirect_uri = os.getenv('REDIRECT_URI')
         self.oauth_scopes = os.getenv('OAUTH_SCOPES', 'identify guilds.join').split()
         self.api_endpoint = 'https://discord.com/api/v10'
+        self.web_password = os.getenv('WEB_PASSWORD', 'admin123')
     
     def setup_routes(self):
         """Configurar rotas do servidor"""
@@ -25,70 +29,27 @@ class WebServer:
         @self.app.route('/')
         async def index():
             """Página inicial"""
-            return await render_template_string("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Panda Store Bot</title>
-                <style>
-                    * { margin: 0; padding: 0; box-sizing: border-box; }
-                    body { 
-                        font-family: 'Segoe UI', sans-serif;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        min-height: 100vh;
-                        display: flex;
-                        justify-content: center;
-                        align-items: center;
-                    }
-                    .container {
-                        background: white;
-                        padding: 50px;
-                        border-radius: 20px;
-                        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                        text-align: center;
-                        max-width: 500px;
-                    }
-                    h1 { color: #2c3e50; margin-bottom: 20px; }
-                    .panda { font-size: 80px; margin-bottom: 20px; }
-                    p { color: #7f8c8d; margin-bottom: 30px; }
-                    .btn {
-                        display: inline-block;
-                        padding: 15px 30px;
-                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                        color: white;
-                        text-decoration: none;
-                        border-radius: 10px;
-                        font-weight: bold;
-                        transition: transform 0.2s;
-                    }
-                    .btn:hover { transform: translateY(-2px); }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="panda">🐼</div>
-                    <h1>Panda Store Bot</h1>
-                    <p>Sistema OAuth2 e Gerenciamento de Tickets</p>
-                    <a href="/dashboard" class="btn">Acessar Painel</a>
-                </div>
-            </body>
-            </html>
-            """)
+            return await render_template('index.html', 
+                                        bot_name=self.bot.user.name if self.bot.user else 'PandaBot',
+                                        guild_count=len(self.bot.guilds))
         
         @self.app.route('/oauth/callback')
         async def oauth_callback():
             """Callback do OAuth2"""
             code = request.args.get('code')
+            state = request.args.get('state')
             
             if not code:
-                return "Código de autorização não fornecido", 400
+                return await render_template('error.html', 
+                                           error='Código de autorização não fornecido'), 400
             
             try:
                 # Trocar código por tokens
                 token_data = await self.exchange_code(code)
                 
                 if not token_data:
-                    return await self.error_page("Erro ao obter tokens de acesso")
+                    return await render_template('error.html', 
+                                               error='Erro ao obter tokens de acesso')
                 
                 access_token = token_data['access_token']
                 refresh_token = token_data['refresh_token']
@@ -98,7 +59,8 @@ class WebServer:
                 user_info = await self.get_user_info(access_token)
                 
                 if not user_info:
-                    return await self.error_page("Erro ao obter informações do usuário")
+                    return await render_template('error.html', 
+                                               error='Erro ao obter informações do usuário')
                 
                 user_id = user_info['id']
                 username = user_info['username']
@@ -144,95 +106,50 @@ class WebServer:
                     embed.set_footer(text="Panda Store")
                     await log_channel.send(embed=embed)
                 
-                return await self.success_page(username)
+                return await render_template('success.html', username=username)
                 
             except Exception as e:
                 logger.error(f"Erro no callback OAuth2: {e}")
-                return await self.error_page(str(e))
+                return await render_template('error.html', error=str(e))
         
         @self.app.route('/dashboard')
         async def dashboard():
             """Painel administrativo"""
-            auth = request.headers.get('Authorization')
+            # Verificar autenticação via cookie ou header
+            auth = request.headers.get('Authorization') or request.cookies.get('auth')
             
-            if auth != os.getenv('WEB_PASSWORD'):
-                return await render_template_string("""
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>Login - Panda Store</title>
-                    <style>
-                        * { margin: 0; padding: 0; box-sizing: border-box; }
-                        body { 
-                            font-family: 'Segoe UI', sans-serif;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            min-height: 100vh;
-                            display: flex;
-                            justify-content: center;
-                            align-items: center;
-                        }
-                        .login-box {
-                            background: white;
-                            padding: 40px;
-                            border-radius: 15px;
-                            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-                            max-width: 400px;
-                            width: 100%;
-                        }
-                        h1 { color: #2c3e50; margin-bottom: 30px; text-align: center; }
-                        input {
-                            width: 100%;
-                            padding: 15px;
-                            border: 2px solid #ecf0f1;
-                            border-radius: 8px;
-                            margin-bottom: 20px;
-                            font-size: 16px;
-                        }
-                        button {
-                            width: 100%;
-                            padding: 15px;
-                            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                            color: white;
-                            border: none;
-                            border-radius: 8px;
-                            font-size: 16px;
-                            font-weight: bold;
-                            cursor: pointer;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="login-box">
-                        <h1>🔐 Login do Painel</h1>
-                        <input type="password" id="password" placeholder="Digite a senha">
-                        <button onclick="login()">Entrar</button>
-                    </div>
-                    <script>
-                        function login() {
-                            const password = document.getElementById('password').value;
-                            fetch('/dashboard', {
-                                headers: { 'Authorization': password }
-                            }).then(r => {
-                                if (r.ok) window.location.reload();
-                                else alert('Senha incorreta');
-                            });
-                        }
-                    </script>
-                </body>
-                </html>
-                """)
+            if auth != self.web_password:
+                return await render_template('login.html')
             
-            # Dashboard completo (código HTML do painel)
-            return "Dashboard em desenvolvimento"
+            # Estatísticas
+            stats = self.bot.db.get_stats()
+            
+            return await render_template('dashboard.html',
+                                        stats=stats,
+                                        guilds=len(self.bot.guilds),
+                                        users=len(self.bot.users))
+        
+        @self.app.route('/api/login', methods=['POST'])
+        async def api_login():
+            """API de login"""
+            data = await request.get_json()
+            password = data.get('password')
+            
+            if password == self.web_password:
+                response = jsonify({'success': True})
+                response.set_cookie('auth', password, max_age=86400)  # 24 horas
+                return response
+            
+            return jsonify({'success': False, 'error': 'Senha incorreta'}), 401
         
         @self.app.route('/api/stats')
         async def api_stats():
             """API de estatísticas"""
-            auth = request.headers.get('Authorization')
-            if auth != os.getenv('WEB_PASSWORD'):
+            auth = request.headers.get('Authorization') or request.cookies.get('auth')
+            if auth != self.web_password:
                 return jsonify({'error': 'Não autorizado'}), 401
             
-            stats = self.bot.db.get_stats(7)
+            stats = self.bot.db.get_stats()
             return jsonify(stats)
         
         @self.app.route('/health')
@@ -295,99 +212,6 @@ class WebServer:
                 json=data
             ) as resp:
                 return resp.status in [200, 201, 204]
-    
-    async def success_page(self, username):
-        """Página de sucesso"""
-        return await render_template_string("""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Sucesso - OAuth2</title>
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { 
-                    font-family: 'Segoe UI', sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                }
-                .container {
-                    background: white;
-                    padding: 40px;
-                    border-radius: 15px;
-                    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-                    text-align: center;
-                    max-width: 500px;
-                }
-                .success { color: #2ecc71; font-size: 60px; margin-bottom: 20px; }
-                h1 { color: #2c3e50; margin-bottom: 10px; }
-                p { color: #7f8c8d; margin-bottom: 20px; }
-                .info {
-                    background: #ecf0f1;
-                    padding: 20px;
-                    border-radius: 10px;
-                    margin-top: 20px;
-                }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="success">✅</div>
-                <h1>Autorização Concluída!</h1>
-                <p>Olá, <strong>{{ username }}</strong>!</p>
-                <p>Você autorizou o bot com sucesso. Agora você pode ser adicionado de volta ao servidor automaticamente!</p>
-                <div class="info">
-                    <p><strong>Status:</strong> ✅ Ativo</p>
-                    <p><strong>Validade:</strong> 7 dias (renovado automaticamente)</p>
-                </div>
-                <p style="margin-top: 30px; font-size: 14px;">Você pode fechar esta janela.</p>
-            </div>
-        </body>
-        </html>
-        """, username=username)
-    
-    async def error_page(self, error):
-        """Página de erro"""
-        return await render_template_string("""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Erro - OAuth2</title>
-            <style>
-                * { margin: 0; padding: 0; box-sizing: border-box; }
-                body { 
-                    font-family: 'Segoe UI', sans-serif;
-                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                    min-height: 100vh;
-                    display: flex;
-                    justify-content: center;
-                    align-items: center;
-                }
-                .container {
-                    background: white;
-                    padding: 40px;
-                    border-radius: 15px;
-                    box-shadow: 0 10px 40px rgba(0,0,0,0.3);
-                    text-align: center;
-                    max-width: 500px;
-                }
-                .error { color: #e74c3c; font-size: 60px; margin-bottom: 20px; }
-                h1 { color: #2c3e50; margin-bottom: 10px; }
-                p { color: #7f8c8d; }
-            </style>
-        </head>
-        <body>
-            <div class="container">
-                <div class="error">❌</div>
-                <h1>Erro na Autorização</h1>
-                <p>{{ error }}</p>
-                <p style="margin-top: 20px;">Tente novamente usando <strong>/oauth</strong> no Discord.</p>
-            </div>
-        </body>
-        </html>
-        """, error=error)
     
     async def start(self):
         """Iniciar servidor web"""

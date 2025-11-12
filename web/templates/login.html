@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="login-container">
+    <div class="login-box">
+        <h1>🔐 Login do Painel</h1>
+        <input type="password" id="password" placeholder="Digite a senha" onkeypress="if(event.key==='Enter')login()">
+        <button onclick="login()">Entrar</button>
+        <p id="error" style="display:none; color: #e74c3c; margin-top: 15px;"></p>
+    </div>
+</div>
+
+<script>
+async function login() {
+    const password = document.getElementById('password').value;
+    const errorEl = document.getElementById('error');
+    
+    try {
+        const response = await fetch('/api/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({password})
+        });
+        
+        if (response.ok) {
+            window.location.href = '/dashboard';
+        } else {
+            errorEl.textContent = 'Senha incorreta';
+            errorEl.style.display = 'block';
+        }
+    } catch (error) {
+        errorEl.textContent = 'Erro ao conectar: ' + error.message;
+        errorEl.style.display = 'block';
+    }
+}
+</script>
+{% endblock %}
