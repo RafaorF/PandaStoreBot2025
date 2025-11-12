@@ -40,15 +40,6 @@ class Payments(commands.Cog):
     ):
         """Criar link de pagamento Stripe"""
         
-        # Verificar se Stripe está configurado
-        if not stripe.api_key:
-            embed = EmbedBuilder.error(
-                "Stripe Não Configurado",
-                "O sistema de pagamentos não está configurado. Contate um administrador.",
-                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
         # Validar moeda
         moedas_validas = ['BRL', 'EUR', 'USD', 'GBP']
         moeda = moeda.upper()
@@ -123,7 +114,7 @@ class Payments(commands.Cog):
                 'amount': valor,
                 'currency': moeda,
                 'produto': produto,
-                'created_at': datetime.now(timezone.utc).isoformat()
+                'created_at': datetime.utcnow().isoformat()
             }
             
             # Criar embed de cobrança
@@ -223,7 +214,7 @@ class Payments(commands.Cog):
                         },
                         {
                             "name": "📅 Data de Criação",
-                            "value": f"<t:{int(datetime.now(timezone.utc).timestamp())}:F>",
+                            "value": f"<t:{int(datetime.utcnow().timestamp())}:F>",
                             "inline": True
                         },
                         {
@@ -563,7 +554,7 @@ async def setup(bot):
             payment_status = session.get('payment_status', 'paid')
             customer_email = session.get('customer_details', {}).get('email', 'Não informado')
             
-            timestamp = int(datetime.now(timezone.utc).timestamp())
+            timestamp = int(datetime.utcnow().timestamp())
             
             # 🧾 RECIBO COMPLETO - Enviar no canal onde foi criada a cobrança
             receipt_embed = EmbedBuilder.create_embed(
