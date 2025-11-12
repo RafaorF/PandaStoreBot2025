@@ -50,9 +50,9 @@ async def stripe_webhook(request: Request):
 
     return {"status": "ok"}
 
-# ====================================
+# ===============================
 # COG DE PAGAMENTOS
-# ====================================
+# ===============================
 class Payments(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -111,16 +111,19 @@ class Payments(commands.Cog):
             )
             await interaction.followup.send(embed=error_embed, ephemeral=False)
 
-# ====================================
-# SETUP DO COG E RODAR FASTAPI
-# ====================================
+# ===============================
+# SETUP DO COG
+# ===============================
 async def setup(bot):
     global bot_instance
     bot_instance = bot
     await bot.add_cog(Payments(bot))
 
+# ===============================
+# RODAR FASTAPI EM THREAD
+# ===============================
 def run_fastapi():
-    port = int(os.environ.get("PORT", 8000))
+    port = int(os.environ.get("PORT", 3000))  # usa PORT da ENV ou 3000
     uvicorn.run(app, host="0.0.0.0", port=port)
 
 threading.Thread(target=run_fastapi, daemon=True).start()
