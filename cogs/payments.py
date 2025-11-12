@@ -4,61 +4,55 @@ from discord import app_commands
 import stripe
 from utils import EmbedBuilder, Config
 from decimal import Decimal, InvalidOperation
-from flask import Flask, request
+from fastapi import FastAPI, Request
+import uvicorn
 import asyncio
 import threading
+import os
 
 STRIPE_SECRET_KEY = "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"  # tua secret key
 STRIPE_PUBLIC_KEY = "pk_live_51SSgyhFSG1ZAEoAWhgtctMZg0kXkfCnhsc6ayfSe9pdCFk8p7a48mzYaCFntEtlibkdbUBeHZut2vz9C2KQwN0Ij00grN5lSek"  # opcional
 STRIPE_WEBHOOK_SECRET = "whsec_6kspzWeOMkomdd5s28L29K8r2p1vGaV1"  # do painel Stripe
 stripe.api_key = STRIPE_SECRET_KEY
 
-# =============================
-# FLASK APP PARA WEBHOOK
-# =============================
-app = Flask(__name__)
-
-# Dicionário para guardar sessão -> canal
+# ====================================
+# FASTAPI PARA WEBHOOK
+# ====================================
+app = FastAPI()
 sessions_channels = {}
-bot_instance = None  # referência global para o bot
+bot_instance = None
 
-@app.route("/stripe/webhook", methods=["POST"])
-def stripe_webhook():
-    payload = request.data
+@app.post("/stripe/webhook")
+async def stripe_webhook(request: Request):
+    payload = await request.body()
     sig_header = request.headers.get("Stripe-Signature")
-
+    
     try:
-        event = stripe.Webhook.construct_event(
-            payload, sig_header, STRIPE_WEBHOOK_SECRET
-        )
+        event = stripe.Webhook.construct_event(payload, sig_header, STRIPE_WEBHOOK_SECRET)
     except Exception as e:
-        return str(e), 400
+        return {"error": str(e)}, 400
 
-    # Se o pagamento foi concluído
     if event['type'] == 'checkout.session.completed':
         session = event['data']['object']
         session_id = session['id']
         amount = session['amount_total'] / 100
         currency = session['currency'].upper()
 
-        # Envia no canal correto
-        if session_id in sessions_channels:
+        if session_id in sessions_channels and bot_instance:
             channel_id = sessions_channels[session_id]
-            if bot_instance:
-                channel = bot_instance.get_channel(channel_id)
-                if channel:
-                    asyncio.run_coroutine_threadsafe(
-                        channel.send(f"✅ Pagamento confirmado! 💰 {amount} {currency}"),
-                        bot_instance.loop
-                    )
-            # Remove a referência
+            channel = bot_instance.get_channel(channel_id)
+            if channel:
+                asyncio.run_coroutine_threadsafe(
+                    channel.send(f"✅ Pagamento confirmado! 💰 {amount} {currency}"),
+                    bot_instance.loop
+                )
             del sessions_channels[session_id]
 
-    return '', 200
+    return {"status": "ok"}
 
-# =============================
-# COG COM COMANDO /PAGAMENTO
-# =============================
+# ====================================
+# COG DE PAGAMENTOS
+# ====================================
 class Payments(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -72,14 +66,13 @@ class Payments(commands.Cog):
         moeda="Moeda (ex: eur, usd, brl)"
     )
     async def pagamento(self, interaction: discord.Interaction, valor: str, moeda: str):
-        await interaction.response.defer(ephemeral=False)  # visível no chat
+        await interaction.response.defer(ephemeral=False)
         try:
             valor_decimal = Decimal(valor)
             unit_amount = int(valor_decimal * 100)
             if unit_amount < 1:
                 raise ValueError("O valor mínimo é 0.01")
 
-            # Criar sessão de pagamento
             session = stripe.checkout.Session.create(
                 payment_method_types=["card"],
                 mode="payment",
@@ -95,7 +88,6 @@ class Payments(commands.Cog):
                 cancel_url="https://discord.com"
             )
 
-            # Guarda a relação sessão -> canal
             sessions_channels[session.id] = interaction.channel.id
 
             embed = EmbedBuilder.create_embed(
@@ -119,18 +111,16 @@ class Payments(commands.Cog):
             )
             await interaction.followup.send(embed=error_embed, ephemeral=False)
 
-# =============================
-# SETUP DO COG
-# =============================
+# ====================================
+# SETUP DO COG E RODAR FASTAPI
+# ====================================
 async def setup(bot):
     global bot_instance
-    bot_instance = bot  # guarda referência global
+    bot_instance = bot
     await bot.add_cog(Payments(bot))
 
-# =============================
-# RODAR FLASK EM THREAD PARA RAILWAY
-# =============================
-def run_flask():
-    app.run(host="0.0.0.0", port=5000)
+def run_fastapi():
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
 
-threading.Thread(target=run_flask, daemon=True).start()
+threading.Thread(target=run_fastapi, daemon=True).start()
