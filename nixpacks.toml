@@ -1,1 +1,19 @@
+# Configuração Nixpacks para Railway
+[phases.setup]
+nixPkgs = ["python311"]
 
+[phases.install]
+cmds = [
+  "pip install --upgrade pip setuptools wheel",
+  "pip install -r requirements.txt"
+]
+
+[phases.build]
+cmds = [
+  "mkdir -p data",
+  "mkdir -p backups", 
+  "mkdir -p logs"
+]
+
+[start]
+cmd = "python main.py"
