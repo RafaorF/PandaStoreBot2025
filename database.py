@@ -59,7 +59,7 @@ class Database:
                 guild_id TEXT PRIMARY KEY,
                 verified_role TEXT,
                 staff_role TEXT DEFAULT '1156588514364883065',
-                log_channel TEXT DEFAULT '1149436350064492647',
+                log_channel TEXT DEFAULT '1192914692180545718',
                 ticket_category TEXT DEFAULT '1161185466473795714',
                 cart_category TEXT DEFAULT '1160644873272172627',
                 welcome_channel TEXT,
