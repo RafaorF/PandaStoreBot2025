@@ -4,6 +4,7 @@ discord.py==2.4.0
 # Web Server
 quart==0.19.4
 aiohttp==3.9.1
+Werkzeug==2.3.7  # Evita o erro PROVIDE_AUTOMATIC_OPTIONS
 
 # Pagamentos
 stripe==7.4.0
@@ -14,3 +15,4 @@ psutil==5.9.6
 
 # Database
 aiosqlite==0.19.0
+
