@@ -1,0 +1,19 @@
+# Discord.py - Biblioteca principal do bot
+discord.py==2.3.2
+
+# Web Server - Quart (async Flask)
+quart==0.19.4
+hypercorn==0.15.0
+
+# HTTP Requests
+aiohttp==3.9.1
+aiofiles==23.2.1
+
+# Variáveis de Ambiente
+python-dotenv==1.0.0
+
+# Sistema - Monitoramento
+psutil==5.9.6
+
+# Utilitários
+python-dateutil==2.8.2
