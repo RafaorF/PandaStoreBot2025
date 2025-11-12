@@ -17,3 +17,6 @@ psutil==5.9.6
 
 # Utilitários
 python-dateutil==2.8.2
+
+# Pagamentos
+stripe==6.9.0
