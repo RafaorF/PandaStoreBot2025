@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pagamento Confirmado - Panda Store</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="success">✅</div>
+        <h1>Pagamento Confirmado!</h1>
+        <p>Seu pagamento foi processado com sucesso!</p>
+        
+        <div class="info">
+            <p><strong>Status:</strong> ✅ Pagamento Aprovado</p>
+            <p><strong>Confirmação:</strong> Você receberá uma notificação no Discord em instantes</p>
+            <p><strong>Recibo:</strong> Enviado por DM e email</p>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <p><strong>🎉 Obrigado pela sua compra!</strong></p>
+            <p style="font-size: 14px; color: #7f8c8d; margin-top: 20px;">
+                Você pode fechar esta janela e voltar ao Discord.
+            </p>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <a href="https://discord.gg/seu-servidor" class="btn btn-primary">Voltar ao Discord</a>
+        </div>
+    </div>
+    
+    <script>
+        // Auto-fechar após 10 segundos
+        setTimeout(() => {
+            window.close();
+        }, 10000);
+        
+        // Mostrar contagem regressiva
+        let seconds = 10;
+        const countdown = setInterval(() => {
+            seconds--;
+            if (seconds <= 0) {
+                clearInterval(countdown);
+            }
+        }, 1000);
+    </script>
+</body>
+</html>

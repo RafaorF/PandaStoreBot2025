@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pagamento Cancelado - Panda Store</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+    <div class="container">
+        <div class="error-icon">⚠️</div>
+        <h1>Pagamento Cancelado</h1>
+        <p>Você cancelou o processo de pagamento.</p>
+        
+        <div class="info">
+            <p><strong>O que aconteceu?</strong></p>
+            <p>O pagamento não foi processado e nenhuma cobrança foi feita.</p>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <p><strong>💬 Precisa de ajuda?</strong></p>
+            <p style="font-size: 14px; color: #7f8c8d;">
+                Volte ao Discord e abra um ticket se tiver alguma dúvida ou problema.
+            </p>
+        </div>
+        
+        <div style="margin-top: 30px;">
+            <a href="https://discord.gg/seu-servidor" class="btn btn-primary">Voltar ao Discord</a>
+        </div>
+    </div>
+    
+    <script>
+        // Auto-fechar após 8 segundos
+        setTimeout(() => {
+            window.close();
+        }, 8000);
+    </script>
+</body>
+</html>
