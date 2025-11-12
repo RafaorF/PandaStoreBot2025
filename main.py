@@ -3,7 +3,7 @@ from discord.ext import commands, tasks
 import os
 import asyncio
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 
 # Importar módulos
@@ -28,7 +28,7 @@ class PandaBot(commands.Bot):
         
         self.db = Database()
         self.web_server = None
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
         
     async def setup_hook(self):
         """Carregar cogs e inicializar componentes"""
@@ -69,12 +69,17 @@ class PandaBot(commands.Bot):
         try:
             # Verificar e renovar tokens OAuth2 expirados
             expired = self.db.get_expired_tokens()
-            for user_data in expired:
-                from cogs.oauth import refresh_user_token
-                await refresh_user_token(self, user_data['user_id'])
+            if expired:
+                oauth_cog = self.get_cog('OAuth')
+                if oauth_cog:
+                    for user_data in expired:
+                        try:
+                            await oauth_cog.refresh_token(user_data['user_id'])
+                        except Exception as e:
+                            logger.error(f"Erro ao renovar token para {user_data['user_id']}: {e}")
             
             # Backup automático a cada 6 horas
-            if datetime.utcnow().hour % 6 == 0:
+            if datetime.now(timezone.utc).hour % 6 == 0:
                 self.db.backup()
                 logger.info("💾 Backup automático realizado")
                 
