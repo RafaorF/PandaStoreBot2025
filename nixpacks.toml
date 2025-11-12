@@ -1,11 +1,1 @@
-[project]
-python_version = "3.11"
 
-[phases.install]
-commands = [
-    "pip install --upgrade pip",
-    "pip install -r requirements.txt"
-]
-
-[phases.start]
-command = "python main.py"
