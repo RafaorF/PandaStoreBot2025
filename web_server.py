@@ -5,6 +5,9 @@ import logging
 from datetime import datetime, timedelta
 from utils import Config
 import discord
+import stripe  # ADICIONADO
+
+stripe.api_key = os.getenv('STRIPE_SECRET_KEY')  # ADICIONADO
 
 logger = logging.getLogger('PandaBot.WebServer')
 
@@ -160,6 +163,49 @@ class WebServer:
                 'guilds': len(self.bot.guilds),
                 'users': len(self.bot.users)
             })
+        
+        # ===================== ROTAS DO STRIPE =====================
+        @self.app.route('/webhook/stripe', methods=['POST'])
+        async def stripe_webhook():
+            """Webhook do Stripe"""
+            payload = await request.get_data()
+            sig_header = request.headers.get('Stripe-Signature')
+            
+            try:
+                payments_cog = self.bot.get_cog('Payments')
+                if not payments_cog or not payments_cog.webhook_secret:
+                    logger.error("Webhook secret não configurado")
+                    return jsonify({'error': 'Configuration error'}), 500
+                
+                event = stripe.Webhook.construct_event(
+                    payload, sig_header, payments_cog.webhook_secret
+                )
+            except ValueError:
+                logger.error("Payload inválido do Stripe")
+                return jsonify({'error': 'Invalid payload'}), 400
+            except stripe.error.SignatureVerificationError:
+                logger.error("Assinatura inválida do Stripe")
+                return jsonify({'error': 'Invalid signature'}), 400
+            
+            # Processar evento
+            if event['type'] == 'checkout.session.completed':
+                session = event['data']['object']
+                payments_cog = self.bot.get_cog('Payments')
+                if payments_cog:
+                    await payments_cog.handle_successful_payment(session)
+                    logger.info(f"✅ Pagamento processado: {session['id']}")
+            
+            return jsonify({'success': True})
+
+        @self.app.route('/payment/success')
+        async def payment_success():
+            """Página de sucesso do pagamento"""
+            return await render_template('payment_success.html')
+
+        @self.app.route('/payment/cancel')
+        async def payment_cancel():
+            """Página de cancelamento do pagamento"""
+            return await render_template('payment_cancel.html')
     
     async def exchange_code(self, code):
         """Trocar código por tokens"""
