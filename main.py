@@ -43,7 +43,8 @@ class PandaBot(commands.Bot):
             'cogs.verification',
             'cogs.announcements',
             'cogs.polls',
-            'cogs.events'
+            'cogs.events',
+            'cogs.payments'
         ]
         
         for ext in extensions:
