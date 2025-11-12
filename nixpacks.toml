@@ -1,9 +1,22 @@
+[project]
+# Linguagem principal do projeto
+language = "python"
+# O arquivo que contém todas as dependências Python
+install = ["pip install -r requirements.txt"]
+start = "python main.py"
+
 [phases.setup]
-nixPkgs = ["python3", "gcc"]
+# Garantir que Python e pip estejam instalados
+packages = ["python3", "python3-pip", "python3-venv"]
 
-[phases.install]
-cmds = ["pip install -r requirements.txt"]
+[phases.build]
+commands = [
+    # Instala todas as dependências do requirements.txt
+    "pip install --no-cache-dir -r requirements.txt"
+]
 
-[start]
-cmd = "python main.py"
-
+[phases.start]
+commands = [
+    # Comando para iniciar o bot
+    "python main.py"
+]
