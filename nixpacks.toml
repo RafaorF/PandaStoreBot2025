@@ -1,17 +1,11 @@
 [project]
-language = "python"
-install = ["pip install -r requirements.txt"]
-start = "python main.py"
+python_version = "3.11"
 
-[phases.setup]
-packages = ["python3", "python3-pip", "python3-venv"]
-
-[phases.build]
+[phases.install]
 commands = [
-    "pip install --no-cache-dir -r requirements.txt"
+    "pip install --upgrade pip",
+    "pip install -r requirements.txt"
 ]
 
 [phases.start]
-commands = [
-    "python main.py"
-]
+command = "python main.py"
