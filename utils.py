@@ -51,13 +51,12 @@ class Config:
 • Suporte disponível 24/7
 
 **2. Pagamentos**
-• Aceitamos PIX, Cartão e Criptomoedas
+• Aceitamos Cartão e Criptomoedas
 • Pagamento deve ser efetuado em até 24h
 • Após confirmação, entrega em até 2h
 
 **3. Entrega**
-• Produtos digitais: Entrega imediata
-• Contas: Verificar funcionalidade em 24h
+• Produtos digitais: Entrega imediata em até 2h
 • Problemas: Abrir ticket em até 48h
 
 **4. Reembolsos**
