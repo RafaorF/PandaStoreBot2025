@@ -65,7 +65,7 @@ class Payments(commands.Cog):
             
             # Criar sessão de checkout
             checkout_session = stripe.checkout.Session.create(
-                payment_method_types=['card', 'paypal', 'mb_way', 'pix', 'boleto'],
+                payment_method_types=['card', 'paypal', 'mb_way'],
                 line_items=[{
                     'price_data': {
                         'currency': moeda.lower(),
@@ -372,4 +372,5 @@ class PaymentView(discord.ui.View):
 
 async def setup(bot):
     await bot.add_cog(Payments(bot))
+
 
