@@ -7,12 +7,13 @@ from typing import Optional
 class Config:
     """Configurações centralizadas"""
     
-    # IDs fixos
-    STAFF_ROLE_ID = 1156588514364883065
-    LOG_CHANNEL_ID = 1192914692180545718
-    TICKET_CATEGORY_ID = 1161185466473795714
-    CART_CATEGORY_ID = 1160644873272172627
-    RATING_CHANNEL_ID = 1149436350064492647
+    # IDs fixos (podem ser modificados via .env ou banco de dados)
+    STAFF_ROLE_ID = int(os.getenv('STAFF_ROLE_ID', '1156588514364883065'))
+    LOG_CHANNEL_ID = int(os.getenv('LOG_CHANNEL_ID', '1192914692180545718'))
+    TICKET_CATEGORY_ID = int(os.getenv('TICKET_CATEGORY_ID', '1161185466473795714'))
+    CART_CATEGORY_ID = int(os.getenv('CART_CATEGORY_ID', '1160644873272172627'))
+    RATING_CHANNEL_ID = int(os.getenv('RATING_CHANNEL_ID', '1149436350064492647'))
+    TICKET_PANEL_CHANNEL_ID = int(os.getenv('TICKET_PANEL_CHANNEL_ID', '1192915049845637160'))
     
     # Cores
     COLORS = {

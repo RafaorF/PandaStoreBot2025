@@ -4,7 +4,6 @@ from discord import app_commands
 import logging
 from datetime import datetime
 from utils import EmbedBuilder, Config, TranscriptGenerator, Permissions
-import os
 
 logger = logging.getLogger('PandaBot.Tickets')
 
@@ -13,16 +12,62 @@ class Tickets(commands.Cog):
         self.bot = bot
         self.ticket_category_id = Config.TICKET_CATEGORY_ID
         self.cart_category_id = Config.CART_CATEGORY_ID
+        self.ticket_panel_channel_id = Config.TICKET_PANEL_CHANNEL_ID
     
-    @app_commands.command(name="ticket", description="Abrir um ticket de suporte")
-    async def ticket_command(self, interaction: discord.Interaction):
-        """Abrir ticket de suporte"""
-        await self.create_ticket(interaction, "ticket")
+    @commands.Cog.listener()
+    async def on_ready(self):
+        """Enviar painel de tickets ao iniciar"""
+        await self.setup_ticket_panel()
     
-    @app_commands.command(name="compra", description="Abrir um carrinho de compra")
-    async def compra_command(self, interaction: discord.Interaction):
-        """Abrir carrinho de compra"""
-        await self.create_ticket(interaction, "compra")
+    async def setup_ticket_panel(self):
+        """Configurar painel de tickets no canal específico"""
+        try:
+            channel = self.bot.get_channel(self.ticket_panel_channel_id)
+            if not channel:
+                logger.warning(f"Canal de painel de tickets {self.ticket_panel_channel_id} não encontrado")
+                return
+            
+            # Limpar mensagens antigas do bot
+            async for message in channel.history(limit=10):
+                if message.author == self.bot.user:
+                    try:
+                        await message.delete()
+                    except:
+                        pass
+            
+            # Criar embed do painel
+            embed = EmbedBuilder.create_embed(
+                "🎫 Sistema de Tickets e Compras",
+                "Precisa de ajuda ou quer fazer uma compra? Clique nos botões abaixo!\n\n"
+                "**🎫 Ticket de Suporte**\n"
+                "Para dúvidas, problemas ou suporte geral.\n\n"
+                "**🛒 Carrinho de Compras**\n"
+                "Para realizar compras e transações.",
+                color=Config.COLORS['panda'],
+                thumbnail=channel.guild.icon.url if channel.guild.icon else None,
+                footer_icon=channel.guild.icon.url if channel.guild.icon else None
+            )
+            
+            view = TicketPanelView(self.bot)
+            await channel.send(embed=embed, view=view)
+            logger.info(f"✅ Painel de tickets configurado em #{channel.name}")
+            
+        except Exception as e:
+            logger.error(f"Erro ao configurar painel de tickets: {e}")
+    
+    @app_commands.command(name="setup-tickets", description="Reconfigurar painel de tickets")
+    @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
+    async def setup_tickets_command(self, interaction: discord.Interaction):
+        """Comando para reconfigurar painel manualmente"""
+        await interaction.response.defer(ephemeral=True)
+        await self.setup_ticket_panel()
+        
+        embed = EmbedBuilder.success(
+            "Painel Reconfigurado",
+            f"Painel de tickets atualizado em <#{self.ticket_panel_channel_id}>!",
+            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+        )
+        await interaction.followup.send(embed=embed, ephemeral=True)
     
     async def create_ticket(self, interaction: discord.Interaction, ticket_type: str):
         """Criar ticket ou compra"""
@@ -54,6 +99,9 @@ class Tickets(commands.Cog):
         # Criar canal
         channel_name = f"{'🎫-ticket' if ticket_type == 'ticket' else '🛒-compra'}-{interaction.user.name}"
         
+        config = self.bot.db.get_config(str(interaction.guild.id))
+        staff_role_id = int(config.get('staff_role', Config.STAFF_ROLE_ID)) if config else Config.STAFF_ROLE_ID
+        
         overwrites = {
             interaction.guild.default_role: discord.PermissionOverwrite(read_messages=False),
             interaction.user: discord.PermissionOverwrite(read_messages=True, send_messages=True),
@@ -61,7 +109,7 @@ class Tickets(commands.Cog):
         }
         
         # Adicionar staff
-        staff_role = interaction.guild.get_role(Config.STAFF_ROLE_ID)
+        staff_role = interaction.guild.get_role(staff_role_id)
         if staff_role:
             overwrites[staff_role] = discord.PermissionOverwrite(read_messages=True, send_messages=True)
         
@@ -106,7 +154,8 @@ class Tickets(commands.Cog):
             await interaction.response.send_message(embed=success_embed, ephemeral=True)
             
             # Log
-            log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+            log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+            log_channel = self.bot.get_channel(log_channel_id)
             if log_channel:
                 log_embed = EmbedBuilder.info(
                     f"{emoji} {'Ticket' if ticket_type == 'ticket' else 'Compra'} Aberto",
@@ -124,37 +173,35 @@ class Tickets(commands.Cog):
                 footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
             )
             await interaction.response.send_message(embed=embed, ephemeral=True)
+
+class TicketPanelView(discord.ui.View):
+    """View persistente do painel de tickets"""
     
-    @commands.Cog.listener()
-    async def on_message(self, message):
-        """Detectar primeira mensagem no ticket para perguntar motivo"""
-        if message.author.bot:
-            return
-        
-        ticket_data = self.bot.db.get_ticket(str(message.channel.id))
-        if not ticket_data or ticket_data['status'] != 'open':
-            return
-        
-        # Verificar se é a primeira mensagem do usuário
-        async for msg in message.channel.history(limit=10, oldest_first=True):
-            if msg.author.id == message.author.id and msg.id != message.id:
-                return  # Já enviou mensagens antes
-        
-        # Confirmar recebimento
-        embed = EmbedBuilder.success(
-            "Mensagem Recebida",
-            "Obrigado por descrever seu " + ("problema" if ticket_data['type'] == 'ticket' else "pedido") + "!\n\nNossa equipe irá responder em breve. 🕐",
-            footer_icon=message.guild.icon.url if message.guild.icon else None
-        )
-        await message.channel.send(embed=embed, delete_after=10)
+    def __init__(self, bot):
+        super().__init__(timeout=None)
+        self.bot = bot
+    
+    @discord.ui.button(label="Ticket de Suporte", style=discord.ButtonStyle.primary, emoji="🎫", custom_id="ticket:open_support")
+    async def open_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tickets_cog = self.bot.get_cog('Tickets')
+        if tickets_cog:
+            await tickets_cog.create_ticket(interaction, "ticket")
+    
+    @discord.ui.button(label="Carrinho de Compras", style=discord.ButtonStyle.success, emoji="🛒", custom_id="ticket:open_cart")
+    async def open_cart(self, interaction: discord.Interaction, button: discord.ui.Button):
+        tickets_cog = self.bot.get_cog('Tickets')
+        if tickets_cog:
+            await tickets_cog.create_ticket(interaction, "compra")
 
 class TicketControlView(discord.ui.View):
+    """View persistente de controle do ticket"""
+    
     def __init__(self, bot, ticket_type):
         super().__init__(timeout=None)
         self.bot = bot
         self.ticket_type = ticket_type
     
-    @discord.ui.button(label="Fechar Ticket", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="close_ticket")
+    @discord.ui.button(label="Fechar Ticket", style=discord.ButtonStyle.danger, emoji="🔒", custom_id="ticket:close")
     async def close_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not Permissions.is_staff(interaction.user):
             return await interaction.response.send_message("❌ Apenas staff pode fechar tickets!", ephemeral=True)
@@ -168,7 +215,7 @@ class TicketControlView(discord.ui.View):
         view = ConfirmCloseView(self.bot, self.ticket_type)
         await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
-    @discord.ui.button(label="Adicionar Usuário", style=discord.ButtonStyle.primary, emoji="➕", custom_id="add_user")
+    @discord.ui.button(label="Adicionar Usuário", style=discord.ButtonStyle.primary, emoji="➕", custom_id="ticket:add_user")
     async def add_user(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not Permissions.is_staff(interaction.user):
             return await interaction.response.send_message("❌ Apenas staff pode adicionar usuários!", ephemeral=True)
@@ -176,7 +223,7 @@ class TicketControlView(discord.ui.View):
         modal = AddUserModal(self.bot)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Remover Usuário", style=discord.ButtonStyle.secondary, emoji="➖", custom_id="remove_user")
+    @discord.ui.button(label="Remover Usuário", style=discord.ButtonStyle.secondary, emoji="➖", custom_id="ticket:remove_user")
     async def remove_user(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not Permissions.is_staff(interaction.user):
             return await interaction.response.send_message("❌ Apenas staff pode remover usuários!", ephemeral=True)
@@ -184,7 +231,7 @@ class TicketControlView(discord.ui.View):
         modal = RemoveUserModal(self.bot)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Renomear", style=discord.ButtonStyle.secondary, emoji="✏️", custom_id="rename_ticket")
+    @discord.ui.button(label="Renomear", style=discord.ButtonStyle.secondary, emoji="✏️", custom_id="ticket:rename")
     async def rename_ticket(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not Permissions.is_staff(interaction.user):
             return await interaction.response.send_message("❌ Apenas staff pode renomear!", ephemeral=True)
@@ -206,7 +253,6 @@ class ConfirmCloseView(discord.ui.View):
         if not ticket_data:
             return await interaction.followup.send("❌ Ticket não encontrado no banco de dados!")
         
-        # Gerar transcrição
         embed = EmbedBuilder.info(
             "Gerando Transcrição",
             "Por favor aguarde...",
@@ -217,7 +263,6 @@ class ConfirmCloseView(discord.ui.View):
         try:
             transcript_path = await TranscriptGenerator.generate(interaction.channel)
             
-            # Enviar por DM
             user = await self.bot.fetch_user(int(ticket_data['user_id']))
             dm_embed = EmbedBuilder.info(
                 "Ticket Fechado",
@@ -231,8 +276,9 @@ class ConfirmCloseView(discord.ui.View):
             except:
                 logger.warning(f"Não foi possível enviar DM para {user.id}")
             
-            # Enviar para logs
-            log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+            config = self.bot.db.get_config(str(interaction.guild.id))
+            log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+            log_channel = self.bot.get_channel(log_channel_id)
             if log_channel:
                 log_embed = EmbedBuilder.info(
                     f"{'🎫 Ticket' if self.ticket_type == 'ticket' else '🛒 Compra'} Fechado",
@@ -242,10 +288,8 @@ class ConfirmCloseView(discord.ui.View):
                 )
                 await log_channel.send(embed=log_embed, file=discord.File(transcript_path))
             
-            # Salvar no banco
             self.bot.db.close_ticket(str(interaction.channel.id), str(interaction.user.id), transcript_path)
             
-            # Sistema de avaliação
             rating_view = RatingView(self.bot, ticket_data, self.ticket_type)
             rating_embed = EmbedBuilder.create_embed(
                 "⭐ Avalie Nosso Atendimento",
@@ -259,13 +303,14 @@ class ConfirmCloseView(discord.ui.View):
             except:
                 pass
             
-            # Deletar canal
             await interaction.channel.send(embed=EmbedBuilder.success(
                 "Ticket Fechado",
                 "Este canal será deletado em 5 segundos...",
                 footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
             ))
             
+            import asyncio
+            await asyncio.sleep(5)
             await interaction.channel.delete(reason=f"Ticket fechado por {interaction.user}")
             
         except Exception as e:
@@ -298,39 +343,17 @@ class RatingView(discord.ui.View):
             discord.SelectOption(label="⭐⭐⭐⭐ 4 - Bom", value="4"),
             discord.SelectOption(label="⭐⭐⭐⭐⭐ 5 - Excelente", value="5"),
         ],
-        custom_id="service_rating"
+        custom_id="rating:service"
     )
     async def service_rating_select(self, interaction: discord.Interaction, select: discord.ui.Select):
         self.service_rating = int(select.values[0])
         await interaction.response.send_message(f"✅ Avaliação do atendimento: {'⭐' * self.service_rating}", ephemeral=True)
     
-    @discord.ui.select(
-        placeholder="🛒 Avalie o produto (apenas compras)",
-        options=[
-            discord.SelectOption(label="⭐ 1 - Péssimo", value="1"),
-            discord.SelectOption(label="⭐⭐ 2 - Ruim", value="2"),
-            discord.SelectOption(label="⭐⭐⭐ 3 - Regular", value="3"),
-            discord.SelectOption(label="⭐⭐⭐⭐ 4 - Bom", value="4"),
-            discord.SelectOption(label="⭐⭐⭐⭐⭐ 5 - Excelente", value="5"),
-        ],
-        custom_id="product_rating"
-    )
-    async def product_rating_select(self, interaction: discord.Interaction, select: discord.ui.Select):
-        if self.ticket_type != "compra":
-            return await interaction.response.send_message("❌ Avaliação de produto apenas para compras!", ephemeral=True)
-        
-        self.product_rating = int(select.values[0])
-        await interaction.response.send_message(f"✅ Avaliação do produto: {'⭐' * self.product_rating}", ephemeral=True)
-    
-    @discord.ui.button(label="Enviar Avaliação", style=discord.ButtonStyle.green, emoji="📤")
+    @discord.ui.button(label="Enviar Avaliação", style=discord.ButtonStyle.green, emoji="📤", custom_id="rating:submit")
     async def submit(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not self.service_rating:
             return await interaction.response.send_message("❌ Avalie o atendimento primeiro!", ephemeral=True)
         
-        if self.ticket_type == "compra" and not self.product_rating:
-            return await interaction.response.send_message("❌ Avalie o produto também!", ephemeral=True)
-        
-        # Salvar avaliação
         self.bot.db.rate_ticket(
             self.ticket_data['ticket_id'],
             self.service_rating,
@@ -339,7 +362,6 @@ class RatingView(discord.ui.View):
             None
         )
         
-        # Enviar para canal de avaliações
         rating_channel = self.bot.get_channel(Config.RATING_CHANNEL_ID)
         if rating_channel:
             user = await self.bot.fetch_user(int(self.ticket_data['user_id']))
@@ -350,8 +372,7 @@ class RatingView(discord.ui.View):
                 color=Config.COLORS['warning'],
                 thumbnail=user.display_avatar.url,
                 fields=[
-                    {"name": "Atendimento", "value": "⭐" * self.service_rating, "inline": True},
-                    {"name": "Produto", "value": "⭐" * self.product_rating if self.product_rating else "N/A", "inline": True}
+                    {"name": "Atendimento", "value": "⭐" * self.service_rating, "inline": True}
                 ]
             )
             
@@ -427,3 +448,8 @@ class RenameTicketModal(discord.ui.Modal, title="Renomear Ticket"):
 
 async def setup(bot):
     await bot.add_cog(Tickets(bot))
+    
+    # Registrar views persistentes
+    bot.add_view(TicketPanelView(bot))
+    bot.add_view(TicketControlView(bot, "ticket"))
+    bot.add_view(TicketControlView(bot, "compra"))

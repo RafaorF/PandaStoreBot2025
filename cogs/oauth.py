@@ -110,6 +110,116 @@ class OAuth(commands.Cog):
             view = OAuthAuthView(auth_url)
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
+    @app_commands.command(name="puxar", description="Puxar usuário de volta ao servidor (Staff)")
+    @app_commands.describe(user_id="ID do usuário para puxar")
+    @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
+    async def puxar_command(self, interaction: discord.Interaction, user_id: str):
+        """Puxar usuário manualmente"""
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Verificar se usuário tem OAuth2
+        oauth_data = self.bot.db.get_oauth_user(user_id)
+        
+        if not oauth_data:
+            embed = EmbedBuilder.error(
+                "Erro",
+                f"Usuário `{user_id}` não tem OAuth2 autorizado.",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            return await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        try:
+            # Obter informações do usuário
+            user = await self.bot.fetch_user(int(user_id))
+            
+            # Verificar se já está no servidor
+            member = interaction.guild.get_member(int(user_id))
+            if member:
+                embed = EmbedBuilder.warning(
+                    "Usuário Já no Servidor",
+                    f"{user.mention} já está no servidor!",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+                return await interaction.followup.send(embed=embed, ephemeral=True)
+            
+            # Tentar puxar
+            access_token = oauth_data['access_token']
+            
+            # Adicionar ao servidor
+            headers = {
+                'Authorization': f'Bot {self.bot.http.token}',
+                'Content-Type': 'application/json'
+            }
+            
+            data = {'access_token': access_token}
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.put(
+                    f'{self.api_endpoint}/guilds/{interaction.guild.id}/members/{user_id}',
+                    headers=headers,
+                    json=data
+                ) as resp:
+                    if resp.status in [200, 201, 204]:
+                        # Sucesso!
+                        self.bot.db.update_last_pulled(user_id)
+                        self.bot.db.increment_stat('successful_pulls')
+                        
+                        embed = EmbedBuilder.success(
+                            "Usuário Puxado",
+                            f"**{user.name}** foi adicionado ao servidor com sucesso!",
+                            thumbnail=user.display_avatar.url,
+                            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                        )
+                        
+                        # Adicionar cargo de verificado
+                        config = self.bot.db.get_config(str(interaction.guild.id))
+                        if config and config.get('verified_role'):
+                            try:
+                                member = await interaction.guild.fetch_member(int(user_id))
+                                role = interaction.guild.get_role(int(config['verified_role']))
+                                if role and member:
+                                    await member.add_roles(role)
+                                    embed.add_field(name="Cargo Adicionado", value=role.mention, inline=False)
+                            except:
+                                pass
+                        
+                        # Log
+                        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+                        log_channel = self.bot.get_channel(log_channel_id)
+                        if log_channel:
+                            log_embed = EmbedBuilder.success(
+                                "🔄 Usuário Puxado Manualmente",
+                                f"**{user.name}** foi puxado por {interaction.user.mention}",
+                                thumbnail=user.display_avatar.url,
+                                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                            )
+                            await log_channel.send(embed=log_embed)
+                        
+                        await interaction.followup.send(embed=embed, ephemeral=True)
+                    else:
+                        # Erro
+                        error_msg = await resp.text()
+                        logger.error(f"Erro ao puxar {user_id}: {resp.status} - {error_msg}")
+                        
+                        self.bot.db.increment_stat('failed_pulls')
+                        
+                        embed = EmbedBuilder.error(
+                            "Erro ao Puxar",
+                            f"Não foi possível puxar o usuário.\n\n**Status:** {resp.status}\n**Detalhes:** {error_msg[:100]}",
+                            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                        )
+                        await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        except Exception as e:
+            logger.error(f"Erro ao puxar usuário {user_id}: {e}")
+            embed = EmbedBuilder.error(
+                "Erro",
+                f"Ocorreu um erro ao puxar o usuário:\n```{str(e)}```",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+    
     async def refresh_token(self, user_id):
         """Renovar access token"""
         user_data = self.bot.db.get_oauth_user(user_id)

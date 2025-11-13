@@ -15,53 +15,50 @@ class Events(commands.Cog):
         
         config = self.bot.db.get_config(str(member.guild.id))
         
-        if not config or not config.get('welcome_channel'):
-            return
-        
-        welcome_channel = member.guild.get_channel(int(config['welcome_channel']))
-        
-        if not welcome_channel:
-            return
-        
-        # Mensagem personalizada ou padrão
-        message = config.get('welcome_message', 'Bem-vindo(a) ao servidor, {user}!')
-        message = message.replace('{user}', member.mention).replace('{server}', member.guild.name)
-        
-        # Criar embed de boas-vindas
-        embed = EmbedBuilder.create_embed(
-            f"👋 Bem-vindo(a) ao {member.guild.name}!",
-            message,
-            color=Config.COLORS['success'],
-            thumbnail=member.display_avatar.url,
-            image=member.guild.banner.url if member.guild.banner else None,
-            fields=[
-                {
-                    "name": "👤 Membro",
-                    "value": f"{member.mention}\n{member.name}",
-                    "inline": True
-                },
-                {
-                    "name": "📊 Membro #",
-                    "value": str(member.guild.member_count),
-                    "inline": True
-                },
-                {
-                    "name": "📅 Conta Criada",
-                    "value": f"<t:{int(member.created_at.timestamp())}:R>",
-                    "inline": True
-                }
-            ],
-            footer_icon=member.guild.icon.url if member.guild.icon else None
-        )
-        
-        try:
-            await welcome_channel.send(f"{member.mention}", embed=embed)
-            logger.info(f"✅ Boas-vindas enviadas para {member.name}")
-        except Exception as e:
-            logger.error(f"Erro ao enviar boas-vindas: {e}")
+        if config and config.get('welcome_channel'):
+            welcome_channel = member.guild.get_channel(int(config['welcome_channel']))
+            
+            if welcome_channel:
+                # Mensagem personalizada ou padrão
+                message = config.get('welcome_message', 'Bem-vindo(a) ao servidor, {user}!')
+                message = message.replace('{user}', member.mention).replace('{server}', member.guild.name)
+                
+                # Criar embed de boas-vindas
+                embed = EmbedBuilder.create_embed(
+                    f"👋 Bem-vindo(a) ao {member.guild.name}!",
+                    message,
+                    color=Config.COLORS['success'],
+                    thumbnail=member.display_avatar.url,
+                    image=member.guild.banner.url if member.guild.banner else None,
+                    fields=[
+                        {
+                            "name": "👤 Membro",
+                            "value": f"{member.mention}\n{member.name}",
+                            "inline": True
+                        },
+                        {
+                            "name": "📊 Membro #",
+                            "value": str(member.guild.member_count),
+                            "inline": True
+                        },
+                        {
+                            "name": "📅 Conta Criada",
+                            "value": f"<t:{int(member.created_at.timestamp())}:R>",
+                            "inline": True
+                        }
+                    ],
+                    footer_icon=member.guild.icon.url if member.guild.icon else None
+                )
+                
+                try:
+                    await welcome_channel.send(embed=embed)
+                    logger.info(f"✅ Boas-vindas enviadas para {member.name}")
+                except Exception as e:
+                    logger.error(f"Erro ao enviar boas-vindas: {e}")
         
         # Log
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+        log_channel = self.bot.get_channel(log_channel_id)
         if log_channel:
             log_embed = EmbedBuilder.info(
                 "👋 Membro Entrou",
@@ -99,7 +96,7 @@ class Events(commands.Cog):
                     fields=[
                         {
                             "name": "👤 Membro",
-                            "value": f"{member.name}\n#{member.discriminator}" if member.discriminator != "0" else member.name,
+                            "value": member.name,
                             "inline": True
                         },
                         {
@@ -117,7 +114,8 @@ class Events(commands.Cog):
                     logger.error(f"Erro ao enviar despedida: {e}")
         
         # Log
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+        log_channel = self.bot.get_channel(log_channel_id)
         if log_channel:
             log_embed = EmbedBuilder.warning(
                 "👋 Membro Saiu",
@@ -192,7 +190,9 @@ class Events(commands.Cog):
     async def on_member_ban(self, guild: discord.Guild, user: discord.User):
         """Evento quando membro é banido"""
         
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+        config = self.bot.db.get_config(str(guild.id))
+        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+        log_channel = self.bot.get_channel(log_channel_id)
         if not log_channel:
             return
         
@@ -223,7 +223,9 @@ class Events(commands.Cog):
     async def on_member_unban(self, guild: discord.Guild, user: discord.User):
         """Evento quando membro é desbanido"""
         
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+        config = self.bot.db.get_config(str(guild.id))
+        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+        log_channel = self.bot.get_channel(log_channel_id)
         if not log_channel:
             return
         
@@ -246,7 +248,9 @@ class Events(commands.Cog):
     async def on_guild_channel_create(self, channel: discord.abc.GuildChannel):
         """Evento quando canal é criado"""
         
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+        config = self.bot.db.get_config(str(channel.guild.id))
+        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+        log_channel = self.bot.get_channel(log_channel_id)
         if not log_channel or channel.id == log_channel.id:
             return
         
@@ -269,7 +273,9 @@ class Events(commands.Cog):
     async def on_guild_channel_delete(self, channel: discord.abc.GuildChannel):
         """Evento quando canal é deletado"""
         
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+        config = self.bot.db.get_config(str(channel.guild.id))
+        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+        log_channel = self.bot.get_channel(log_channel_id)
         if not log_channel:
             return
         
@@ -292,7 +298,9 @@ class Events(commands.Cog):
     async def on_guild_role_create(self, role: discord.Role):
         """Evento quando cargo é criado"""
         
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+        config = self.bot.db.get_config(str(role.guild.id))
+        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+        log_channel = self.bot.get_channel(log_channel_id)
         if not log_channel:
             return
         
@@ -315,7 +323,9 @@ class Events(commands.Cog):
     async def on_guild_role_delete(self, role: discord.Role):
         """Evento quando cargo é deletado"""
         
-        log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+        config = self.bot.db.get_config(str(role.guild.id))
+        log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+        log_channel = self.bot.get_channel(log_channel_id)
         if not log_channel:
             return
         

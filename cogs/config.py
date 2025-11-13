@@ -91,35 +91,48 @@ class BotConfig(commands.Cog):
 
 class ConfigView(discord.ui.View):
     def __init__(self, bot):
-        super().__init__(timeout=300)
+        super().__init__(timeout=None)
         self.bot = bot
     
-    @discord.ui.button(label="Cargo Verificado", style=discord.ButtonStyle.primary, emoji="✅", row=0)
+    async def update_embed(self, interaction: discord.Interaction):
+        """Atualizar embed principal"""
+        config = self.bot.db.get_config(str(interaction.guild.id))
+        cog = self.bot.get_cog('BotConfig')
+        new_embed = cog.create_config_embed(interaction.guild, config)
+        
+        try:
+            # Buscar a mensagem original
+            original_message = interaction.message
+            await original_message.edit(embed=new_embed, view=self)
+        except:
+            pass
+    
+    @discord.ui.button(label="Cargo Verificado", style=discord.ButtonStyle.primary, emoji="✅", row=0, custom_id="config:verified_role")
     async def verified_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = RoleConfigModal(self.bot, "verified_role", "Cargo de Verificado")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Cargo Staff", style=discord.ButtonStyle.primary, emoji="👮", row=0)
+    @discord.ui.button(label="Cargo Staff", style=discord.ButtonStyle.primary, emoji="👮", row=0, custom_id="config:staff_role")
     async def staff_role(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = RoleConfigModal(self.bot, "staff_role", "Cargo de Staff")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Canal de Logs", style=discord.ButtonStyle.primary, emoji="📋", row=0)
+    @discord.ui.button(label="Canal de Logs", style=discord.ButtonStyle.primary, emoji="📋", row=0, custom_id="config:log_channel")
     async def log_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = ChannelConfigModal(self.bot, "log_channel", "Canal de Logs")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Boas-Vindas", style=discord.ButtonStyle.secondary, emoji="👋", row=1)
+    @discord.ui.button(label="Boas-Vindas", style=discord.ButtonStyle.secondary, emoji="👋", row=1, custom_id="config:welcome_channel")
     async def welcome_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = ChannelConfigModal(self.bot, "welcome_channel", "Canal de Boas-Vindas")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Despedida", style=discord.ButtonStyle.secondary, emoji="👋", row=1)
+    @discord.ui.button(label="Despedida", style=discord.ButtonStyle.secondary, emoji="👋", row=1, custom_id="config:goodbye_channel")
     async def goodbye_channel(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = ChannelConfigModal(self.bot, "goodbye_channel", "Canal de Despedida")
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Auto-Puxar", style=discord.ButtonStyle.success, emoji="🔄", row=1)
+    @discord.ui.button(label="Auto-Puxar", style=discord.ButtonStyle.success, emoji="🔄", row=1, custom_id="config:auto_pull")
     async def auto_pull(self, interaction: discord.Interaction, button: discord.ui.Button):
         config = self.bot.db.get_config(str(interaction.guild.id))
         current = config.get('auto_pull', 0)
@@ -134,25 +147,17 @@ class ConfigView(discord.ui.View):
         )
         
         await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        # Atualizar embed principal
-        config = self.bot.db.get_config(str(interaction.guild.id))
-        cog = self.bot.get_cog('BotConfig')
-        new_embed = cog.create_config_embed(interaction.guild, config)
-        await interaction.message.edit(embed=new_embed)
+        await self.update_embed(interaction)
     
-    @discord.ui.button(label="Mensagem Boas-Vindas", style=discord.ButtonStyle.secondary, emoji="💬", row=2)
+    @discord.ui.button(label="Mensagem Boas-Vindas", style=discord.ButtonStyle.secondary, emoji="💬", row=2, custom_id="config:welcome_message")
     async def welcome_message(self, interaction: discord.Interaction, button: discord.ui.Button):
         modal = WelcomeMessageModal(self.bot)
         await interaction.response.send_modal(modal)
     
-    @discord.ui.button(label="Atualizar", style=discord.ButtonStyle.secondary, emoji="🔄", row=2)
+    @discord.ui.button(label="Atualizar", style=discord.ButtonStyle.secondary, emoji="🔄", row=2, custom_id="config:refresh")
     async def refresh(self, interaction: discord.Interaction, button: discord.ui.Button):
-        config = self.bot.db.get_config(str(interaction.guild.id))
-        cog = self.bot.get_cog('BotConfig')
-        new_embed = cog.create_config_embed(interaction.guild, config)
-        
-        await interaction.response.edit_message(embed=new_embed)
+        await interaction.response.defer()
+        await self.update_embed(interaction)
 
 class RoleConfigModal(discord.ui.Modal):
     def __init__(self, bot, config_key, title):
@@ -185,11 +190,9 @@ class RoleConfigModal(discord.ui.Modal):
             
             await interaction.response.send_message(embed=embed, ephemeral=True)
             
-            # Atualizar embed principal
-            config = self.bot.db.get_config(str(interaction.guild.id))
-            cog = self.bot.get_cog('BotConfig')
-            new_embed = cog.create_config_embed(interaction.guild, config)
-            await interaction.message.edit(embed=new_embed)
+            # Atualizar Config no cache
+            if self.config_key == 'staff_role':
+                Config.STAFF_ROLE_ID = role.id
             
         except ValueError:
             await interaction.response.send_message("❌ ID inválido!", ephemeral=True)
@@ -225,11 +228,9 @@ class ChannelConfigModal(discord.ui.Modal):
             
             await interaction.response.send_message(embed=embed, ephemeral=True)
             
-            # Atualizar embed principal
-            config = self.bot.db.get_config(str(interaction.guild.id))
-            cog = self.bot.get_cog('BotConfig')
-            new_embed = cog.create_config_embed(interaction.guild, config)
-            await interaction.message.edit(embed=new_embed)
+            # Atualizar Config no cache
+            if self.config_key == 'log_channel':
+                Config.LOG_CHANNEL_ID = channel.id
             
         except ValueError:
             await interaction.response.send_message("❌ ID inválido!", ephemeral=True)
@@ -248,10 +249,8 @@ class WelcomeMessageModal(discord.ui.Modal, title="Configurar Mensagem de Boas-V
         self.bot = bot
     
     async def on_submit(self, interaction: discord.Interaction):
-        # Salvar mensagem no DB
         self.bot.db.set_config(str(interaction.guild.id), 'welcome_message', self.message.value)
         
-        # Criar preview
         preview = self.message.value.replace('{user}', interaction.user.mention).replace('{server}', interaction.guild.name)
         
         embed = EmbedBuilder.success(
@@ -260,17 +259,10 @@ class WelcomeMessageModal(discord.ui.Modal, title="Configurar Mensagem de Boas-V
             footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
         )
         
-        # Responder ao modal
         await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        # Atualizar embed principal do painel de configuração
-        config = self.bot.db.get_config(str(interaction.guild.id))
-        cog = self.bot.get_cog('BotConfig')
-        new_embed = cog.create_config_embed(interaction.guild, config)
-        
-        # Envia uma nova mensagem com o embed atualizado ou usa edit_message de uma interação que existe
-        # Aqui vamos enviar uma nova mensagem efêmera (mais seguro)
-        await interaction.followup.send(embed=new_embed, ephemeral=True)
 
 async def setup(bot):
     await bot.add_cog(BotConfig(bot))
+    
+    # Registrar views persistentes
+    bot.add_view(ConfigView(bot))

@@ -53,19 +53,11 @@ class Database:
             )
         """)
         
-        # Tabela de configurações
+        # Tabela de configurações (CORRIGIDA - suporta JSON)
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS config (
                 guild_id TEXT PRIMARY KEY,
-                verified_role TEXT,
-                staff_role TEXT DEFAULT '1156588514364883065',
-                log_channel TEXT DEFAULT '1192914692180545718',
-                ticket_category TEXT DEFAULT '1161185466473795714',
-                cart_category TEXT DEFAULT '1160644873272172627',
-                welcome_channel TEXT,
-                goodbye_channel TEXT,
-                auto_pull INTEGER DEFAULT 1,
-                welcome_message TEXT,
+                config_data TEXT NOT NULL,
                 updated_at INTEGER
             )
         """)
@@ -213,24 +205,50 @@ class Database:
         """, (user_id,))
         return [dict(row) for row in self.cursor.fetchall()]
     
-    # ==================== CONFIG ====================
+    # ==================== CONFIG (CORRIGIDO) ====================
     
     def get_config(self, guild_id):
         """Obter configurações do servidor"""
         self.cursor.execute("SELECT * FROM config WHERE guild_id = ?", (guild_id,))
         row = self.cursor.fetchone()
-        return dict(row) if row else None
+        
+        if row:
+            try:
+                config_data = json.loads(row['config_data'])
+                return config_data
+            except:
+                return {}
+        return None
     
     def set_config(self, guild_id, key, value):
-        """Definir configuração"""
-        config = self.get_config(guild_id) or {}
-        config[key] = value
-        config['updated_at'] = int(datetime.utcnow().timestamp())
+        """Definir configuração específica"""
+        # Obter config atual
+        current_config = self.get_config(guild_id) or {}
         
-        self.cursor.execute(f"""
-            INSERT OR REPLACE INTO config (guild_id, {key}, updated_at)
+        # Atualizar chave
+        current_config[key] = value
+        current_config['updated_at'] = int(datetime.utcnow().timestamp())
+        
+        # Salvar
+        config_json = json.dumps(current_config)
+        
+        self.cursor.execute("""
+            INSERT OR REPLACE INTO config (guild_id, config_data, updated_at)
             VALUES (?, ?, ?)
-        """, (guild_id, value, config['updated_at']))
+        """, (guild_id, config_json, current_config['updated_at']))
+        
+        self.conn.commit()
+    
+    def set_full_config(self, guild_id, config_dict):
+        """Definir configuração completa"""
+        config_dict['updated_at'] = int(datetime.utcnow().timestamp())
+        config_json = json.dumps(config_dict)
+        
+        self.cursor.execute("""
+            INSERT OR REPLACE INTO config (guild_id, config_data, updated_at)
+            VALUES (?, ?, ?)
+        """, (guild_id, config_json, config_dict['updated_at']))
+        
         self.conn.commit()
     
     # ==================== BLACKLIST ====================

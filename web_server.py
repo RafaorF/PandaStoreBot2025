@@ -5,9 +5,9 @@ import logging
 from datetime import datetime, timedelta
 from utils import Config
 import discord
-import stripe  # ADICIONADO
+import stripe
 
-stripe.api_key = os.getenv('STRIPE_SECRET_KEY')  # ADICIONADO
+stripe.api_key = os.getenv('STRIPE_SECRET_KEY')
 
 logger = logging.getLogger('PandaBot.WebServer')
 
@@ -74,40 +74,62 @@ class WebServer:
                 
                 logger.info(f"✅ {username} ({user_id}) autorizou OAuth2")
                 
-                # Auto-puxar se configurado
+                # Auto-puxar e dar cargo
                 guild_id = os.getenv('GUILD_ID')
-                config = self.bot.db.get_config(guild_id)
+                guild = self.bot.get_guild(int(guild_id))
                 
-                if config and config.get('auto_pull'):
-                    guild = self.bot.get_guild(int(guild_id))
-                    if guild:
+                if guild:
+                    config = self.bot.db.get_config(guild_id)
+                    
+                    # Verificar se usuário já está no servidor
+                    member = guild.get_member(int(user_id))
+                    
+                    if not member:
+                        # Puxar para o servidor
                         result = await self.add_user_to_guild(user_id, guild_id, access_token)
                         
                         if result:
                             logger.info(f"✅ {username} foi puxado automaticamente")
                             
-                            # Adicionar cargo de verificado
-                            if config.get('verified_role'):
-                                try:
-                                    member = await guild.fetch_member(int(user_id))
-                                    role = guild.get_role(int(config['verified_role']))
-                                    if role:
-                                        await member.add_roles(role)
-                                except:
-                                    pass
+                            # Aguardar um pouco para garantir que o membro foi adicionado
+                            import asyncio
+                            await asyncio.sleep(2)
+                            
+                            # Buscar membro novamente
+                            member = guild.get_member(int(user_id))
+                    
+                    # Adicionar cargo de verificado
+                    if member and config and config.get('verified_role'):
+                        try:
+                            role = guild.get_role(int(config['verified_role']))
+                            if role:
+                                await member.add_roles(role, reason="OAuth2 autorizado")
+                                logger.info(f"✅ Cargo {role.name} adicionado a {username}")
+                        except Exception as e:
+                            logger.error(f"Erro ao adicionar cargo a {username}: {e}")
                 
                 # Notificar em logs
-                log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
-                if log_channel:
-                    embed = discord.Embed(
-                        title="🔐 Nova Autorização OAuth2",
-                        description=f"**{username}** autorizou o sistema OAuth2!",
-                        color=Config.COLORS['success'],
-                        timestamp=datetime.utcnow()
-                    )
-                    embed.add_field(name="ID do Usuário", value=user_id)
-                    embed.set_footer(text="Panda Store")
-                    await log_channel.send(embed=embed)
+                if guild:
+                    config = self.bot.db.get_config(guild_id)
+                    log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+                    log_channel = self.bot.get_channel(log_channel_id)
+                    if log_channel:
+                        embed = discord.Embed(
+                            title="🔐 Nova Autorização OAuth2",
+                            description=f"**{username}** autorizou o sistema OAuth2!",
+                            color=Config.COLORS['success'],
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(name="ID do Usuário", value=user_id)
+                        
+                        # Verificar se o cargo foi adicionado
+                        if config and config.get('verified_role'):
+                            role = guild.get_role(int(config['verified_role']))
+                            if role:
+                                embed.add_field(name="Cargo Adicionado", value=role.mention, inline=False)
+                        
+                        embed.set_footer(text="Panda Store")
+                        await log_channel.send(embed=embed)
                 
                 return await render_template('success.html', username=username)
                 
@@ -118,13 +140,11 @@ class WebServer:
         @self.app.route('/dashboard')
         async def dashboard():
             """Painel administrativo"""
-            # Verificar autenticação via cookie ou header
             auth = request.headers.get('Authorization') or request.cookies.get('auth')
             
             if auth != self.web_password:
                 return await render_template('login.html')
             
-            # Estatísticas
             stats = self.bot.db.get_stats()
             
             return await render_template('dashboard.html',
@@ -140,7 +160,7 @@ class WebServer:
             
             if password == self.web_password:
                 response = jsonify({'success': True})
-                response.set_cookie('auth', password, max_age=86400)  # 24 horas
+                response.set_cookie('auth', password, max_age=86400)
                 return response
             
             return jsonify({'success': False, 'error': 'Senha incorreta'}), 401
@@ -187,7 +207,6 @@ class WebServer:
                 logger.error("Assinatura inválida do Stripe")
                 return jsonify({'error': 'Invalid signature'}), 400
             
-            # Processar evento
             if event['type'] == 'checkout.session.completed':
                 session = event['data']['object']
                 payments_cog = self.bot.get_cog('Payments')
