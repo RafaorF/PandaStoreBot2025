@@ -68,11 +68,16 @@ class WebServer:
                 user_id = user_info['id']
                 username = user_info['username']
                 
-                # Salvar no banco
+                # Salvar no banco (FORÇAR COMMIT)
                 expires_at = int((datetime.utcnow() + timedelta(seconds=expires_in)).timestamp())
                 self.bot.db.add_oauth_user(user_id, access_token, refresh_token, expires_at)
                 
-                logger.info(f"✅ {username} ({user_id}) autorizou OAuth2")
+                # Verificar se salvou
+                saved_user = self.bot.db.get_oauth_user(user_id)
+                if saved_user:
+                    logger.info(f"✅ {username} ({user_id}) autorizou OAuth2 e foi salvo no banco")
+                else:
+                    logger.error(f"❌ ERRO: {username} ({user_id}) não foi salvo no banco!")
                 
                 # Auto-puxar e dar cargo
                 guild_id = os.getenv('GUILD_ID')
@@ -146,11 +151,13 @@ class WebServer:
                 return await render_template('login.html')
             
             stats = self.bot.db.get_stats()
+            backups = self.bot.db.get_all_backups()
             
             return await render_template('dashboard.html',
                                         stats=stats,
                                         guilds=len(self.bot.guilds),
-                                        users=len(self.bot.users))
+                                        users=len(self.bot.users),
+                                        backups=backups)
         
         @self.app.route('/api/login', methods=['POST'])
         async def api_login():
@@ -175,13 +182,75 @@ class WebServer:
             stats = self.bot.db.get_stats()
             return jsonify(stats)
         
+        @self.app.route('/api/backup/create', methods=['POST'])
+        async def api_create_backup():
+            """API para criar backup manualmente"""
+            auth = request.headers.get('Authorization') or request.cookies.get('auth')
+            if auth != self.web_password:
+                return jsonify({'error': 'Não autorizado'}), 401
+            
+            try:
+                backup_path = self.bot.db.backup()
+                if backup_path:
+                    return jsonify({'success': True, 'backup': backup_path})
+                else:
+                    return jsonify({'success': False, 'error': 'Erro ao criar backup'}), 500
+            except Exception as e:
+                logger.error(f"Erro ao criar backup: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
+        @self.app.route('/api/backup/download/<filename>')
+        async def api_download_backup(filename):
+            """API para download de backup"""
+            auth = request.args.get('auth') or request.cookies.get('auth')
+            if auth != self.web_password:
+                return jsonify({'error': 'Não autorizado'}), 401
+            
+            # Validar nome do arquivo
+            if not filename.startswith('backup_') or not filename.endswith('.db'):
+                return jsonify({'error': 'Arquivo inválido'}), 400
+            
+            filepath = os.path.join('backups', filename)
+            
+            if not os.path.exists(filepath):
+                return jsonify({'error': 'Arquivo não encontrado'}), 404
+            
+            try:
+                return await send_file(
+                    filepath,
+                    mimetype='application/octet-stream',
+                    as_attachment=True,
+                    attachment_filename=filename
+                )
+            except Exception as e:
+                logger.error(f"Erro ao enviar backup: {e}")
+                return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/export/json', methods=['POST'])
+        async def api_export_json():
+            """API para exportar dados em JSON"""
+            auth = request.headers.get('Authorization') or request.cookies.get('auth')
+            if auth != self.web_password:
+                return jsonify({'error': 'Não autorizado'}), 401
+            
+            try:
+                json_path = self.bot.db.export_json()
+                if json_path:
+                    return jsonify({'success': True, 'file': json_path})
+                else:
+                    return jsonify({'success': False, 'error': 'Erro ao exportar'}), 500
+            except Exception as e:
+                logger.error(f"Erro ao exportar JSON: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
+        
         @self.app.route('/health')
         async def health():
             """Health check para Railway"""
             return jsonify({
                 'status': 'online',
                 'guilds': len(self.bot.guilds),
-                'users': len(self.bot.users)
+                'users': len(self.bot.users),
+                'oauth_users': self.bot.db.get_stats()['total_users']
             })
         
         # ===================== ROTAS DO STRIPE =====================
