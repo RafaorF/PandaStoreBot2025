@@ -42,16 +42,16 @@ class Verification(commands.Cog):
         embed = EmbedBuilder.create_embed(
             "✅ Sistema de Verificação",
             f"Bem-vindo ao **{interaction.guild.name}**!\n\n"
-            "Para ter acesso completo ao servidor, você precisa se verificar através do OAuth2.\n\n"
+            "Para ter acesso completo ao servidor, você precisa se verificar abaixo.\n\n"
             "**Como funciona:**\n"
             "1️⃣ Clique no botão **Verificar** abaixo\n"
-            "2️⃣ Autorize o bot no Discord\n"
+            "2️⃣ Autorize\n"
             "3️⃣ Receba automaticamente o cargo de verificado\n"
             "4️⃣ Tenha acesso total ao servidor!\n\n"
             "**Benefícios:**\n"
             "✅ Acesso completo ao servidor\n"
-            "✅ Proteção contra saída acidental\n"
-            "✅ Retorno automático se sair\n"
+            "✅ Proteção contra bots\n"
+            "✅ Retorno automático do cargo se sair\n"
             "✅ 100% seguro e confiável",
             color=Config.COLORS['success'],
             thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
@@ -112,7 +112,7 @@ class VerificationView(discord.ui.View):
         if oauth_cog:
             auth_url = oauth_cog.generate_auth_url()
             self.add_item(discord.ui.Button(
-                label="Verificar com OAuth2",
+                label="Verificar",
                 emoji="✅",
                 style=discord.ButtonStyle.link,
                 url=auth_url
@@ -125,19 +125,16 @@ class VerificationView(discord.ui.View):
         embed = EmbedBuilder.info(
             "❓ Como Funciona a Verificação?",
             "**Passo a Passo:**\n\n"
-            "1️⃣ **Clique em 'Verificar com OAuth2'**\n"
+            "1️⃣ **Clique em 'Verificar'**\n"
             "Você será redirecionado para a página oficial do Discord.\n\n"
-            "2️⃣ **Autorize as Permissões**\n"
-            "O bot precisa de permissão para:\n"
-            "• Identificar sua conta\n"
-            "• Adicionar você de volta ao servidor\n\n"
+            "2️⃣ **Autorize as Permissões**\n\n"
             "3️⃣ **Receba o Cargo**\n"
             "Automaticamente você receberá o cargo de verificado!\n\n"
             "4️⃣ **Proteção Automática**\n"
-            "Se você sair do servidor, será adicionado de volta automaticamente.\n\n"
+            "Se você sair do servidor, e entrar de volta recebera o cargo verificado automaticamente.\n\n"
             "**É Seguro?**\n"
             "✅ Sim! O bot usa o sistema oficial OAuth2 do Discord.\n"
-            "✅ Apenas armazenamos o necessário para te adicionar de volta.\n"
+            "✅ Apenas armazenamos o necessário.\n"
             "✅ Você pode revogar a autorização a qualquer momento.\n\n"
             "**Dúvidas?**\n"
             "Abra um ticket e nossa equipe te ajudará!",
