@@ -5,6 +5,8 @@ import asyncio
 from dotenv import load_dotenv
 from datetime import datetime, timezone
 import logging
+import signal
+import sys
 
 # Importar módulos
 from database import Database
@@ -29,6 +31,10 @@ class PandaBot(commands.Bot):
         self.db = Database()
         self.web_server = None
         self.start_time = datetime.now(timezone.utc)
+        
+        # Criar backup inicial
+        logger.info("💾 Criando backup inicial...")
+        self.db.backup()
         
     async def setup_hook(self):
         """Carregar cogs e inicializar componentes"""
@@ -60,16 +66,18 @@ class PandaBot(commands.Bot):
         
         # Iniciar tarefas de background
         self.background_tasks.start()
+        self.hourly_backup.start()
         
         logger.info("✅ Setup concluído!")
     
     @tasks.loop(minutes=30)
     async def background_tasks(self):
-        """Tarefas periódicas"""
+        """Tarefas periódicas a cada 30 minutos"""
         try:
             # Verificar e renovar tokens OAuth2 expirados
             expired = self.db.get_expired_tokens()
             if expired:
+                logger.info(f"🔄 Renovando {len(expired)} tokens expirados...")
                 oauth_cog = self.get_cog('OAuth')
                 if oauth_cog:
                     for user_data in expired:
@@ -78,16 +86,31 @@ class PandaBot(commands.Bot):
                         except Exception as e:
                             logger.error(f"Erro ao renovar token para {user_data['user_id']}: {e}")
             
-            # Backup automático a cada 6 horas
-            if datetime.now(timezone.utc).hour % 6 == 0:
-                self.db.backup()
-                logger.info("💾 Backup automático realizado")
+            # Log de status
+            stats = self.db.get_stats()
+            logger.info(f"📊 Status: {stats['total_users']} OAuth2 | {len(self.guilds)} servidores | {len(self.users)} usuários")
                 
         except Exception as e:
             logger.error(f"Erro nas tarefas de background: {e}")
     
+    @tasks.loop(hours=1)
+    async def hourly_backup(self):
+        """Backup automático a cada hora"""
+        try:
+            backup_path = self.db.backup()
+            if backup_path:
+                logger.info(f"💾 Backup automático criado: {backup_path}")
+            else:
+                logger.warning("⚠️ Falha ao criar backup automático")
+        except Exception as e:
+            logger.error(f"❌ Erro no backup automático: {e}")
+    
     @background_tasks.before_loop
     async def before_background_tasks(self):
+        await self.wait_until_ready()
+    
+    @hourly_backup.before_loop
+    async def before_hourly_backup(self):
         await self.wait_until_ready()
     
     async def on_ready(self):
@@ -99,6 +122,11 @@ class PandaBot(commands.Bot):
         stats = self.db.get_stats()
         logger.info(f"🔐 {stats['total_users']} usuários com OAuth2")
         logger.info(f"🎫 {stats['total_tickets']} tickets registrados")
+        logger.info(f"🚫 {stats['total_blacklisted']} usuários na blacklist")
+        
+        # Verificar integridade dos dados OAuth2
+        oauth_users = self.db.get_all_oauth_users()
+        logger.info(f"✅ Verificação: {len(oauth_users)} registros OAuth2 carregados do banco")
         
         # Sincronizar comandos slash
         try:
@@ -111,7 +139,7 @@ class PandaBot(commands.Bot):
         await self.change_presence(
             activity=discord.Activity(
                 type=discord.ActivityType.watching,
-                name=f"{len(self.guilds)} servidores | /ajuda"
+                name=f"{len(self.guilds)} servidores | /oauth"
             ),
             status=discord.Status.online
         )
@@ -140,6 +168,26 @@ class PandaBot(commands.Bot):
                 description="Ocorreu um erro ao executar o comando.",
                 color=Config.COLORS['error']
             ))
+    
+    async def close(self):
+        """Fechar bot e salvar dados"""
+        logger.info("🔄 Encerrando bot...")
+        
+        # Backup final antes de fechar
+        logger.info("💾 Criando backup final...")
+        self.db.backup()
+        
+        # Fechar banco de dados
+        self.db.close()
+        
+        # Fechar bot
+        await super().close()
+        logger.info("✅ Bot encerrado com sucesso")
+
+def signal_handler(signum, frame):
+    """Handler para sinais de término"""
+    logger.info(f"🛑 Recebido sinal {signum}, encerrando...")
+    sys.exit(0)
 
 def main():
     """Função principal"""
@@ -151,16 +199,28 @@ def main():
         logger.error(f"❌ Variáveis de ambiente faltando: {', '.join(missing)}")
         return
     
+    # Registrar handlers de sinal
+    signal.signal(signal.SIGINT, signal_handler)
+    signal.signal(signal.SIGTERM, signal_handler)
+    
     bot = PandaBot()
     
     try:
+        logger.info("🚀 Iniciando bot...")
         bot.run(os.getenv('BOT_TOKEN'))
     except KeyboardInterrupt:
         logger.info("🔄 Bot desligado pelo usuário")
     except Exception as e:
         logger.error(f"❌ Erro fatal: {e}")
     finally:
-        bot.db.close()
+        # Garantir que o banco seja fechado corretamente
+        try:
+            if hasattr(bot, 'db'):
+                logger.info("💾 Salvando dados finais...")
+                bot.db.backup()
+                bot.db.close()
+        except Exception as e:
+            logger.error(f"Erro ao fechar banco: {e}")
 
 if __name__ == "__main__":
     main()
