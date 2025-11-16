@@ -11,6 +11,7 @@ import sys
 # Importar módulos
 from database import Database
 from web_server import WebServer
+from backup_manager import BackupManager
 from utils import Logger, Config
 
 load_dotenv()
@@ -29,12 +30,30 @@ class PandaBot(commands.Bot):
         )
         
         self.db = Database()
+        self.backup_manager = BackupManager(self.db)
         self.web_server = None
         self.start_time = datetime.now(timezone.utc)
         
+        # 🔄 VERIFICAR E RESTAURAR DADOS NO INÍCIO
+        logger.info("🔍 Verificando dados existentes...")
+        oauth_count = len(self.db.get_all_oauth_users())
+        
+        if oauth_count == 0:
+            logger.warning("⚠️ Nenhum dado OAuth2 no banco, tentando restaurar do snapshot...")
+            if self.backup_manager.restore_from_snapshot():
+                oauth_count = len(self.db.get_all_oauth_users())
+                logger.info(f"✅ {oauth_count} usuários OAuth2 restaurados do snapshot!")
+            else:
+                logger.warning("⚠️ Nenhum snapshot disponível para restaurar")
+        else:
+            logger.info(f"✅ {oauth_count} usuários OAuth2 carregados do banco")
+        
+        # Verificar integridade
+        self.backup_manager.verify_integrity()
+        
         # Criar backup inicial
         logger.info("💾 Criando backup inicial...")
-        self.db.backup()
+        self.backup_manager.create_full_backup()
         
     async def setup_hook(self):
         """Carregar cogs e inicializar componentes"""
@@ -66,6 +85,7 @@ class PandaBot(commands.Bot):
         
         # Iniciar tarefas de background
         self.background_tasks.start()
+        self.snapshot_backup.start()
         self.hourly_backup.start()
         
         logger.info("✅ Setup concluído!")
@@ -93,20 +113,33 @@ class PandaBot(commands.Bot):
         except Exception as e:
             logger.error(f"Erro nas tarefas de background: {e}")
     
-    @tasks.loop(hours=1)
-    async def hourly_backup(self):
-        """Backup automático a cada hora"""
+    @tasks.loop(minutes=10)
+    async def snapshot_backup(self):
+        """Criar snapshot JSON a cada 10 minutos - CRÍTICO PARA PERSISTÊNCIA"""
         try:
-            backup_path = self.db.backup()
+            self.backup_manager.create_oauth_snapshot()
+            logger.info("💾 Snapshot OAuth2 atualizado")
+        except Exception as e:
+            logger.error(f"❌ Erro no snapshot automático: {e}")
+    
+    @tasks.loop(hours=6)
+    async def hourly_backup(self):
+        """Backup completo a cada 6 horas"""
+        try:
+            backup_path = self.backup_manager.create_full_backup()
             if backup_path:
-                logger.info(f"💾 Backup automático criado: {backup_path}")
+                logger.info(f"💾 Backup completo criado: {backup_path}")
             else:
-                logger.warning("⚠️ Falha ao criar backup automático")
+                logger.warning("⚠️ Falha ao criar backup completo")
         except Exception as e:
             logger.error(f"❌ Erro no backup automático: {e}")
     
     @background_tasks.before_loop
     async def before_background_tasks(self):
+        await self.wait_until_ready()
+    
+    @snapshot_backup.before_loop
+    async def before_snapshot_backup(self):
         await self.wait_until_ready()
     
     @hourly_backup.before_loop
@@ -127,6 +160,10 @@ class PandaBot(commands.Bot):
         # Verificar integridade dos dados OAuth2
         oauth_users = self.db.get_all_oauth_users()
         logger.info(f"✅ Verificação: {len(oauth_users)} registros OAuth2 carregados do banco")
+        
+        # Criar snapshot imediato após inicialização
+        self.backup_manager.create_oauth_snapshot()
+        logger.info("💾 Snapshot inicial criado após inicialização")
         
         # Sincronizar comandos slash
         try:
@@ -173,9 +210,16 @@ class PandaBot(commands.Bot):
         """Fechar bot e salvar dados"""
         logger.info("🔄 Encerrando bot...")
         
-        # Backup final antes de fechar
-        logger.info("💾 Criando backup final...")
-        self.db.backup()
+        # ✅ BACKUP FINAL CRÍTICO antes de fechar
+        logger.info("💾 Criando backup final CRÍTICO...")
+        self.backup_manager.create_full_backup()
+        
+        # Garantir que snapshot está atualizado
+        self.backup_manager.create_oauth_snapshot()
+        
+        # Forçar commit final
+        self.db.conn.commit()
+        logger.info("✅ Dados salvos com sucesso")
         
         # Fechar banco de dados
         self.db.close()
@@ -215,9 +259,12 @@ def main():
     finally:
         # Garantir que o banco seja fechado corretamente
         try:
-            if hasattr(bot, 'db'):
+            if hasattr(bot, 'backup_manager'):
                 logger.info("💾 Salvando dados finais...")
-                bot.db.backup()
+                bot.backup_manager.create_full_backup()
+                bot.backup_manager.create_oauth_snapshot()
+            if hasattr(bot, 'db'):
+                bot.db.conn.commit()
                 bot.db.close()
         except Exception as e:
             logger.error(f"Erro ao fechar banco: {e}")
