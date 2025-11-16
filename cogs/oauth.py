@@ -110,6 +110,109 @@ class OAuth(commands.Cog):
             view = OAuthAuthView(auth_url)
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
     
+    @app_commands.command(name="puxarlist", description="Ver lista de usuários com OAuth2 autorizado")
+    @app_commands.describe(page="Página da lista (padrão: 1)")
+    @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
+    async def puxarlist_command(self, interaction: discord.Interaction, page: int = 1):
+        """Ver lista completa de usuários OAuth2"""
+        
+        await interaction.response.defer(ephemeral=True)
+        
+        # Obter todos os usuários OAuth2
+        oauth_users = self.bot.db.get_all_oauth_users()
+        
+        if not oauth_users:
+            embed = EmbedBuilder.warning(
+                "Lista Vazia",
+                "Nenhum usuário tem OAuth2 autorizado ainda.",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            return await interaction.followup.send(embed=embed, ephemeral=True)
+        
+        # Paginação
+        per_page = 10
+        total_pages = (len(oauth_users) - 1) // per_page + 1
+        page = max(1, min(page, total_pages))
+        
+        start = (page - 1) * per_page
+        end = start + per_page
+        page_users = oauth_users[start:end]
+        
+        # Criar lista formatada
+        user_list = []
+        current_time = int(datetime.utcnow().timestamp())
+        
+        for user_data in page_users:
+            try:
+                user = await self.bot.fetch_user(int(user_data['user_id']))
+                
+                # Verificar se está no servidor
+                member = interaction.guild.get_member(int(user_data['user_id']))
+                status = "🟢 No servidor" if member else "🔴 Fora"
+                
+                # Verificar expiração do token
+                expires_at = user_data['expires_at']
+                time_left = expires_at - current_time
+                
+                if time_left > 86400:  # Mais de 1 dia
+                    days = time_left // 86400
+                    token_status = f"✅ {days}d"
+                elif time_left > 0:
+                    hours = time_left // 3600
+                    token_status = f"⚠️ {hours}h"
+                else:
+                    token_status = "❌ Expirado"
+                
+                # Último pull
+                if user_data.get('last_pulled') and user_data['last_pulled'] > 0:
+                    last_pull = f"<t:{user_data['last_pulled']}:R>"
+                else:
+                    last_pull = "Nunca"
+                
+                user_list.append(
+                    f"**{user.name}** ({status})\n"
+                    f"├ ID: `{user.id}`\n"
+                    f"├ Token: {token_status}\n"
+                    f"└ Último pull: {last_pull}"
+                )
+            except Exception as e:
+                logger.error(f"Erro ao buscar usuário {user_data['user_id']}: {e}")
+                user_list.append(
+                    f"**Usuário Desconhecido**\n"
+                    f"├ ID: `{user_data['user_id']}`\n"
+                    f"└ ⚠️ Erro ao carregar dados"
+                )
+        
+        # Estatísticas gerais
+        total_users = len(oauth_users)
+        users_in_server = sum(1 for u in oauth_users if interaction.guild.get_member(int(u['user_id'])))
+        users_out = total_users - users_in_server
+        
+        # Tokens expirados
+        expired_tokens = sum(1 for u in oauth_users if u['expires_at'] < current_time)
+        
+        embed = EmbedBuilder.create_embed(
+            "📋 Lista de Usuários OAuth2",
+            "\n\n".join(user_list),
+            color=Config.COLORS['info'],
+            thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
+            fields=[
+                {
+                    "name": "📊 Estatísticas",
+                    "value": f"**Total:** {total_users}\n**No servidor:** 🟢 {users_in_server}\n**Fora:** 🔴 {users_out}\n**Tokens expirados:** ❌ {expired_tokens}",
+                    "inline": True
+                },
+                {
+                    "name": "📄 Paginação",
+                    "value": f"Página **{page}** de **{total_pages}**\nUse `/puxarlist page:{page+1}` para próxima",
+                    "inline": True
+                }
+            ],
+            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+        )
+        
+        await interaction.followup.send(embed=embed, ephemeral=True)
+    
     @app_commands.command(name="puxar", description="Puxar usuário(s) de volta ao servidor (Staff)")
     @app_commands.describe(user_id="ID do usuário para puxar (opcional)")
     @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
