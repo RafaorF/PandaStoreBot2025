@@ -122,7 +122,7 @@ class OAuth(commands.Cog):
         if user_id:
             oauth_users = [self.bot.db.get_oauth_user(user_id)]
         else:
-            oauth_users = self.bot.db.get_all_oauth_users()  # <-- Deve retornar lista de dicts
+            oauth_users = self.bot.db.get_all_oauth_users()
 
         if not oauth_users or all(u is None for u in oauth_users):
             embed = EmbedBuilder.error(
@@ -146,11 +146,18 @@ class OAuth(commands.Cog):
                 # Verificar se já está no servidor
                 member = interaction.guild.get_member(int(uid))
                 if member:
-                    continue  # já está no servidor
+                    logger.info(f"⏭️ {user.name} já está no servidor, pulando...")
+                    continue
                 
-                # Tentar puxar
-                access_token = user_data['access_token']
+                # ✅ VERIFICAR E RENOVAR TOKEN SE EXPIRADO
+                access_token = await self.ensure_valid_token(uid, user_data)
                 
+                if not access_token:
+                    logger.error(f"❌ Token inválido para {user.name}, não foi possível renovar")
+                    total_falhados += 1
+                    continue
+                
+                # Tentar puxar com token válido
                 headers = {
                     'Authorization': f'Bot {self.bot.http.token}',
                     'Content-Type': 'application/json'
@@ -168,9 +175,11 @@ class OAuth(commands.Cog):
                             self.bot.db.update_last_pulled(uid)
                             self.bot.db.increment_stat('successful_pulls')
                             total_puxados += 1
+                            logger.info(f"✅ {user.name} puxado com sucesso!")
                         else:
+                            error_text = await resp.text()
+                            logger.error(f"❌ Erro ao puxar {user.name}: {resp.status} - {error_text}")
                             total_falhados += 1
-                            logger.error(f"Erro ao puxar {uid}: {resp.status} - {await resp.text()}")
             
             except Exception as e:
                 total_falhados += 1
@@ -183,8 +192,32 @@ class OAuth(commands.Cog):
         )
         await interaction.followup.send(embed=embed, ephemeral=True)
     
+    async def ensure_valid_token(self, user_id, user_data):
+        """
+        Garantir que o token é válido, renovando se necessário.
+        Retorna o access_token válido ou None se falhar.
+        """
+        current_time = int(datetime.utcnow().timestamp())
+        expires_at = user_data['expires_at']
+        
+        # Se o token ainda é válido por pelo menos 1 hora, usar ele
+        if expires_at > (current_time + 3600):
+            logger.info(f"✅ Token de {user_id} ainda é válido")
+            return user_data['access_token']
+        
+        # Token expirado ou expirando em breve - renovar!
+        logger.info(f"🔄 Token de {user_id} expirado/expirando, renovando...")
+        new_token = await self.refresh_token(user_id)
+        
+        if new_token:
+            logger.info(f"✅ Token de {user_id} renovado com sucesso!")
+            return new_token
+        else:
+            logger.error(f"❌ Falha ao renovar token de {user_id}")
+            return None
+    
     async def refresh_token(self, user_id):
-        """Renovar access token"""
+        """Renovar access token - Retorna o novo access_token ou None"""
         user_data = self.bot.db.get_oauth_user(user_id)
         
         if not user_data or not user_data.get('refresh_token'):
@@ -198,26 +231,31 @@ class OAuth(commands.Cog):
             'refresh_token': user_data['refresh_token']
         }
         
-        async with aiohttp.ClientSession() as session:
-            async with session.post(
-                f'{self.api_endpoint}/oauth2/token',
-                data=data,
-                headers={'Content-Type': 'application/x-www-form-urlencoded'}
-            ) as resp:
-                if resp.status == 200:
-                    token_data = await resp.json()
-                    
-                    access_token = token_data['access_token']
-                    refresh_token = token_data['refresh_token']
-                    expires_in = token_data['expires_in']
-                    expires_at = int((datetime.utcnow() + timedelta(seconds=expires_in)).timestamp())
-                    
-                    self.bot.db.add_oauth_user(user_id, access_token, refresh_token, expires_at)
-                    logger.info(f"✅ Token renovado para {user_id}")
-                    return access_token
-                else:
-                    logger.error(f"❌ Erro ao renovar token para {user_id}")
-                    return None
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f'{self.api_endpoint}/oauth2/token',
+                    data=data,
+                    headers={'Content-Type': 'application/x-www-form-urlencoded'}
+                ) as resp:
+                    if resp.status == 200:
+                        token_data = await resp.json()
+                        
+                        access_token = token_data['access_token']
+                        refresh_token = token_data['refresh_token']
+                        expires_in = token_data['expires_in']
+                        expires_at = int((datetime.utcnow() + timedelta(seconds=expires_in)).timestamp())
+                        
+                        self.bot.db.add_oauth_user(user_id, access_token, refresh_token, expires_at)
+                        logger.info(f"✅ Token renovado para {user_id}")
+                        return access_token
+                    else:
+                        error_text = await resp.text()
+                        logger.error(f"❌ Erro ao renovar token para {user_id}: {resp.status} - {error_text}")
+                        return None
+        except Exception as e:
+            logger.error(f"❌ Exceção ao renovar token para {user_id}: {e}")
+            return None
 
 class OAuthAuthView(discord.ui.View):
     def __init__(self, auth_url):
