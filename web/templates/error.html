@@ -1,10 +1,289 @@
-{% extends "base.html" %}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Erro na Verificação - Panda Store</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
 
-{% block content %}
-<div class="container">
-    <div class="error-icon">❌</div>
-    <h1>Erro na Autorização</h1>
-    <p>{{ error }}</p>
-    <p style="margin-top: 20px;">Tente novamente usando <strong>/oauth</strong> no Discord.</p>
-</div>
-{% endblock %}
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        body::before {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: 
+                radial-gradient(circle at 20% 50%, rgba(255,255,255,0.1) 0%, transparent 50%),
+                radial-gradient(circle at 80% 80%, rgba(255,255,255,0.1) 0%, transparent 50%);
+            animation: float 15s ease-in-out infinite;
+        }
+
+        @keyframes float {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-20px) rotate(2deg); }
+        }
+
+        .container {
+            background: rgba(255, 255, 255, 0.98);
+            backdrop-filter: blur(20px);
+            padding: 60px 50px;
+            border-radius: 30px;
+            box-shadow: 0 30px 90px rgba(0,0,0,0.3);
+            text-align: center;
+            max-width: 600px;
+            width: 100%;
+            animation: slideUp 0.6s ease;
+            position: relative;
+            z-index: 1;
+        }
+
+        @keyframes slideUp {
+            from {
+                opacity: 0;
+                transform: translateY(50px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .error-icon {
+            width: 120px;
+            height: 120px;
+            background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 30px;
+            box-shadow: 0 15px 40px rgba(231, 76, 60, 0.4);
+            animation: shake 0.6s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+        }
+
+        @keyframes shake {
+            10%, 90% { transform: translate3d(-1px, 0, 0); }
+            20%, 80% { transform: translate3d(2px, 0, 0); }
+            30%, 50%, 70% { transform: translate3d(-4px, 0, 0); }
+            40%, 60% { transform: translate3d(4px, 0, 0); }
+        }
+
+        .error-icon svg {
+            width: 60px;
+            height: 60px;
+            stroke: white;
+            stroke-width: 4;
+            stroke-linecap: round;
+            fill: none;
+        }
+
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 32px;
+            font-weight: 800;
+        }
+
+        .error-message {
+            background: linear-gradient(135deg, #fff5f5 0%, #fee 100%);
+            padding: 25px;
+            border-radius: 20px;
+            margin: 30px 0;
+            border-left: 5px solid #e74c3c;
+        }
+
+        .error-message p {
+            color: #e74c3c;
+            font-size: 16px;
+            line-height: 1.6;
+            font-weight: 600;
+        }
+
+        .help-section {
+            background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+            padding: 30px;
+            border-radius: 20px;
+            margin: 30px 0;
+            text-align: left;
+        }
+
+        .help-section h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .help-steps {
+            list-style: none;
+            padding: 0;
+        }
+
+        .help-steps li {
+            padding: 15px 20px;
+            background: white;
+            margin-bottom: 10px;
+            border-radius: 15px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            transition: transform 0.3s;
+        }
+
+        .help-steps li:hover {
+            transform: translateX(5px);
+        }
+
+        .step-number {
+            width: 35px;
+            height: 35px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            flex-shrink: 0;
+        }
+
+        .step-text {
+            color: #2c3e50;
+            font-size: 15px;
+            line-height: 1.5;
+        }
+
+        .btn {
+            display: inline-block;
+            padding: 15px 40px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: 700;
+            font-size: 16px;
+            transition: all 0.3s;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            margin-top: 20px;
+        }
+
+        .btn:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.5);
+        }
+
+        .info-box {
+            background: #fff9e6;
+            border-left: 5px solid #f39c12;
+            padding: 20px;
+            border-radius: 15px;
+            margin-top: 30px;
+        }
+
+        .info-box p {
+            color: #7f8c8d;
+            font-size: 14px;
+            line-height: 1.6;
+            margin: 5px 0;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                padding: 40px 30px;
+            }
+
+            h1 {
+                font-size: 26px;
+            }
+
+            .help-section {
+                text-align: center;
+            }
+
+            .help-steps {
+                text-align: left;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="error-icon">
+            <svg viewBox="0 0 52 52">
+                <circle cx="26" cy="26" r="25" fill="none"/>
+                <path d="M16 16 L36 36 M36 16 L16 36"/>
+            </svg>
+        </div>
+
+        <h1>⚠️ Erro na Verificação</h1>
+
+        <div class="error-message">
+            <p>{{ error }}</p>
+        </div>
+
+        <div class="help-section">
+            <h3>
+                <span>💡</span>
+                <span>Como resolver?</span>
+            </h3>
+            <ul class="help-steps">
+                <li>
+                    <div class="step-number">1</div>
+                    <div class="step-text">Volte ao Discord</div>
+                </li>
+                <li>
+                    <div class="step-number">2</div>
+                    <div class="step-text">Use o comando <strong>/oauth</strong> novamente</div>
+                </li>
+                <li>
+                    <div class="step-number">3</div>
+                    <div class="step-text">Clique em "Autorizar OAuth2"</div>
+                </li>
+                <li>
+                    <div class="step-number">4</div>
+                    <div class="step-text">Autorize todas as permissões solicitadas</div>
+                </li>
+            </ul>
+        </div>
+
+        <div class="info-box">
+            <p><strong>💬 Ainda com problemas?</strong></p>
+            <p>Abra um ticket de suporte no Discord para receber ajuda da nossa equipe!</p>
+        </div>
+
+        <a href="https://discord.gg/VmjEN8xCYP" class="btn">Voltar ao Discord</a>
+    </div>
+
+    <script>
+        // Auto-fechar após 15 segundos (opcional)
+        setTimeout(() => {
+            const closeBtn = document.createElement('p');
+            closeBtn.style.cssText = `
+                margin-top: 20px;
+                color: #7f8c8d;
+                font-size: 12px;
+            `;
+            closeBtn.textContent = 'Esta janela pode ser fechada';
+            document.querySelector('.container').appendChild(closeBtn);
+        }, 5000);
+    </script>
+</body>
+</html>
