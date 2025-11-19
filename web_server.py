@@ -136,7 +136,8 @@ class WebServer:
                         embed.set_footer(text="Panda Store")
                         await log_channel.send(embed=embed)
                 
-                return await render_template('success.html', username=username)
+                # ✅ CORRIGIDO: Nome correto do template
+                return await render_template('sucess.html', username=username)
                 
             except Exception as e:
                 logger.error(f"Erro no callback OAuth2: {e}")
@@ -288,7 +289,8 @@ class WebServer:
         @self.app.route('/payment/success')
         async def payment_success():
             """Página de sucesso do pagamento"""
-            return await render_template('payment_success.html')
+            # ✅ CORRIGIDO: Nome correto do template
+            return await render_template('payment_succcess.html')
 
         @self.app.route('/payment/cancel')
         async def payment_cancel():
