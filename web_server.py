@@ -137,7 +137,7 @@ class WebServer:
                         await log_channel.send(embed=embed)
                 
                 # ✅ CORRIGIDO: Nome correto do template
-                return await render_template('sucess.html', username=username)
+                return await render_template('success.html', username=username)
                 
             except Exception as e:
                 logger.error(f"Erro no callback OAuth2: {e}")
@@ -290,7 +290,7 @@ class WebServer:
         async def payment_success():
             """Página de sucesso do pagamento"""
             # ✅ CORRIGIDO: Nome correto do template
-            return await render_template('payment_succcess.html')
+            return await render_template('payment_success.html')
 
         @self.app.route('/payment/cancel')
         async def payment_cancel():
