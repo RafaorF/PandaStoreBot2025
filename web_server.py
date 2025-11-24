@@ -29,120 +29,18 @@ class WebServer:
     def setup_routes(self):
         """Configurar rotas do servidor"""
         
-        # ===================== PÁGINAS PÚBLICAS =====================
         @self.app.route('/')
-        async def home():
-            """Landing page principal"""
-            stats = self.bot.db.get_stats()
-            return await render_template('home.html',
+        async def index():
+            """Página inicial"""
+            return await render_template('index.html', 
                                         bot_name=self.bot.user.name if self.bot.user else 'PandaBot',
-                                        bot_avatar=self.bot.user.display_avatar.url if self.bot.user else '',
-                                        guilds=len(self.bot.guilds),
-                                        users=len(self.bot.users),
-                                        oauth_users=stats['total_users'],
-                                        tickets=stats['total_tickets'])
+                                        guild_count=len(self.bot.guilds))
         
-        @self.app.route('/features')
-        async def features():
-            """Página de funcionalidades"""
-            return await render_template('features.html',
-                                        bot_name=self.bot.user.name if self.bot.user else 'PandaBot')
-        
-        @self.app.route('/commands')
-        async def commands():
-            """Página de comandos"""
-            # Organizar comandos por categoria
-            commands_list = {
-                'OAuth2': [
-                    {'name': '/oauth', 'description': 'Sistema de autorização OAuth2', 'usage': '/oauth'},
-                    {'name': '/puxar', 'description': 'Puxar usuários de volta ao servidor', 'usage': '/puxar [user_id]'},
-                    {'name': '/puxarlist', 'description': 'Ver lista de usuários OAuth2', 'usage': '/puxarlist [page]'},
-                ],
-                'Tickets': [
-                    {'name': '/setup-tickets', 'description': 'Configurar painel de tickets', 'usage': '/setup-tickets'},
-                ],
-                'Moderação': [
-                    {'name': '/kick', 'description': 'Expulsar um membro', 'usage': '/kick <membro> [motivo]'},
-                    {'name': '/ban', 'description': 'Banir um membro', 'usage': '/ban <membro> [motivo]'},
-                    {'name': '/unban', 'description': 'Desbanir um usuário', 'usage': '/unban <user_id>'},
-                    {'name': '/mute', 'description': 'Mutar um membro', 'usage': '/mute <membro> [duração] [motivo]'},
-                    {'name': '/unmute', 'description': 'Desmutar um membro', 'usage': '/unmute <membro>'},
-                    {'name': '/clear', 'description': 'Limpar mensagens', 'usage': '/clear [quantidade]'},
-                ],
-                'Utilidades': [
-                    {'name': '/ping', 'description': 'Ver latência do bot', 'usage': '/ping'},
-                    {'name': '/serverinfo', 'description': 'Informações do servidor', 'usage': '/serverinfo'},
-                    {'name': '/userinfo', 'description': 'Informações de um usuário', 'usage': '/userinfo [usuário]'},
-                    {'name': '/botinfo', 'description': 'Informações do bot', 'usage': '/botinfo'},
-                    {'name': '/avatar', 'description': 'Ver avatar de um usuário', 'usage': '/avatar [usuário]'},
-                ],
-                'Configuração': [
-                    {'name': '/config', 'description': 'Painel de configuração', 'usage': '/config'},
-                    {'name': '/setup-verificacao', 'description': 'Sistema de verificação', 'usage': '/setup-verificacao <canal>'},
-                ],
-                'Anúncios': [
-                    {'name': '/avisos', 'description': 'Enviar avisos personalizados', 'usage': '/avisos <canal>'},
-                    {'name': '/regras', 'description': 'Enviar regras do servidor', 'usage': '/regras <canal>'},
-                    {'name': '/termos', 'description': 'Enviar termos de compra', 'usage': '/termos <canal>'},
-                ],
-                'Enquetes': [
-                    {'name': '/enquete', 'description': 'Criar enquete personalizada', 'usage': '/enquete <pergunta> <opções>'},
-                    {'name': '/enquete-simples', 'description': 'Criar enquete sim/não', 'usage': '/enquete-simples <pergunta>'},
-                ],
-                'Pagamentos': [
-                    {'name': '/pagar', 'description': 'Criar link de pagamento Stripe', 'usage': '/pagar <valor> [moeda]'},
-                ],
-            }
-            
-            return await render_template('commands.html',
-                                        bot_name=self.bot.user.name if self.bot.user else 'PandaBot',
-                                        commands=commands_list)
-        
-        @self.app.route('/docs')
-        async def docs():
-            """Página de documentação"""
-            return await render_template('docs.html',
-                                        bot_name=self.bot.user.name if self.bot.user else 'PandaBot')
-        
-        @self.app.route('/status')
-        async def status():
-            """Página de status do bot"""
-            stats = self.bot.db.get_stats()
-            uptime = datetime.utcnow() - self.bot.start_time
-            
-            # Status dos serviços
-            services = {
-                'discord': {'status': 'online' if self.bot.is_ready() else 'offline', 'latency': round(self.bot.latency * 1000)},
-                'database': {'status': 'online', 'users': stats['total_users']},
-                'oauth': {'status': 'online', 'active': stats['total_users']},
-                'tickets': {'status': 'online', 'total': stats['total_tickets']},
-                'stripe': {'status': 'online' if os.getenv('STRIPE_SECRET_KEY') else 'disabled'}
-            }
-            
-            return await render_template('status.html',
-                                        bot_name=self.bot.user.name if self.bot.user else 'PandaBot',
-                                        uptime_seconds=int(uptime.total_seconds()),
-                                        guilds=len(self.bot.guilds),
-                                        users=len(self.bot.users),
-                                        services=services)
-        
-        @self.app.route('/invite')
-        async def invite():
-            """Redirecionar para link de convite"""
-            invite_url = f"https://discord.com/api/oauth2/authorize?client_id={self.client_id}&permissions=8&scope=bot%20applications.commands"
-            return redirect(invite_url)
-        
-        @self.app.route('/support')
-        async def support():
-            """Redirecionar para servidor de suporte"""
-            support_url = os.getenv('SUPPORT_SERVER', 'https://discord.gg/VmjEN8xCYP')
-            return redirect(support_url)
-        
-        # ===================== OAUTH2 =====================
         @self.app.route('/oauth/callback')
         async def oauth_callback():
             """Callback do OAuth2"""
             code = request.args.get('code')
+            state = request.args.get('state')
             
             if not code:
                 return await render_template('error.html', 
@@ -170,11 +68,16 @@ class WebServer:
                 user_id = user_info['id']
                 username = user_info['username']
                 
-                # Salvar no banco
+                # Salvar no banco (FORÇAR COMMIT)
                 expires_at = int((datetime.utcnow() + timedelta(seconds=expires_in)).timestamp())
                 self.bot.db.add_oauth_user(user_id, access_token, refresh_token, expires_at)
                 
-                logger.info(f"✅ {username} ({user_id}) autorizou OAuth2")
+                # Verificar se salvou
+                saved_user = self.bot.db.get_oauth_user(user_id)
+                if saved_user:
+                    logger.info(f"✅ {username} ({user_id}) autorizou OAuth2 e foi salvo no banco")
+                else:
+                    logger.error(f"❌ ERRO: {username} ({user_id}) não foi salvo no banco!")
                 
                 # Auto-puxar e dar cargo
                 guild_id = os.getenv('GUILD_ID')
@@ -182,17 +85,25 @@ class WebServer:
                 
                 if guild:
                     config = self.bot.db.get_config(guild_id)
+                    
+                    # Verificar se usuário já está no servidor
                     member = guild.get_member(int(user_id))
                     
                     if not member:
+                        # Puxar para o servidor
                         result = await self.add_user_to_guild(user_id, guild_id, access_token)
+                        
                         if result:
                             logger.info(f"✅ {username} foi puxado automaticamente")
+                            
+                            # Aguardar um pouco para garantir que o membro foi adicionado
                             import asyncio
                             await asyncio.sleep(2)
+                            
+                            # Buscar membro novamente
                             member = guild.get_member(int(user_id))
                     
-                    # Adicionar cargo
+                    # Adicionar cargo de verificado
                     if member and config and config.get('verified_role'):
                         try:
                             role = guild.get_role(int(config['verified_role']))
@@ -200,15 +111,38 @@ class WebServer:
                                 await member.add_roles(role, reason="OAuth2 autorizado")
                                 logger.info(f"✅ Cargo {role.name} adicionado a {username}")
                         except Exception as e:
-                            logger.error(f"Erro ao adicionar cargo: {e}")
+                            logger.error(f"Erro ao adicionar cargo a {username}: {e}")
                 
+                # Notificar em logs
+                if guild:
+                    config = self.bot.db.get_config(guild_id)
+                    log_channel_id = int(config.get('log_channel', Config.LOG_CHANNEL_ID)) if config else Config.LOG_CHANNEL_ID
+                    log_channel = self.bot.get_channel(log_channel_id)
+                    if log_channel:
+                        embed = discord.Embed(
+                            title="🔐 Nova Autorização OAuth2",
+                            description=f"**{username}** autorizou o sistema OAuth2!",
+                            color=Config.COLORS['success'],
+                            timestamp=datetime.utcnow()
+                        )
+                        embed.add_field(name="ID do Usuário", value=user_id)
+                        
+                        # Verificar se o cargo foi adicionado
+                        if config and config.get('verified_role'):
+                            role = guild.get_role(int(config['verified_role']))
+                            if role:
+                                embed.add_field(name="Cargo Adicionado", value=role.mention, inline=False)
+                        
+                        embed.set_footer(text="RKZ Shop")
+                        await log_channel.send(embed=embed)
+                
+                # ✅ CORRIGIDO: Nome correto do template
                 return await render_template('success.html', username=username)
                 
             except Exception as e:
                 logger.error(f"Erro no callback OAuth2: {e}")
                 return await render_template('error.html', error=str(e))
         
-        # ===================== DASHBOARD ADMIN =====================
         @self.app.route('/dashboard')
         async def dashboard():
             """Painel administrativo"""
@@ -226,7 +160,6 @@ class WebServer:
                                         users=len(self.bot.users),
                                         backups=backups)
         
-        # ===================== API =====================
         @self.app.route('/api/login', methods=['POST'])
         async def api_login():
             """API de login"""
@@ -242,23 +175,17 @@ class WebServer:
         
         @self.app.route('/api/stats')
         async def api_stats():
-            """API de estatísticas públicas"""
-            stats = self.bot.db.get_stats()
-            uptime = datetime.utcnow() - self.bot.start_time
+            """API de estatísticas"""
+            auth = request.headers.get('Authorization') or request.cookies.get('auth')
+            if auth != self.web_password:
+                return jsonify({'error': 'Não autorizado'}), 401
             
-            return jsonify({
-                'guilds': len(self.bot.guilds),
-                'users': len(self.bot.users),
-                'oauth_users': stats['total_users'],
-                'tickets': stats['total_tickets'],
-                'uptime': int(uptime.total_seconds()),
-                'status': 'online' if self.bot.is_ready() else 'offline',
-                'latency': round(self.bot.latency * 1000)
-            })
+            stats = self.bot.db.get_stats()
+            return jsonify(stats)
         
         @self.app.route('/api/backup/create', methods=['POST'])
         async def api_create_backup():
-            """API para criar backup"""
+            """API para criar backup manualmente"""
             auth = request.headers.get('Authorization') or request.cookies.get('auth')
             if auth != self.web_password:
                 return jsonify({'error': 'Não autorizado'}), 401
@@ -267,8 +194,10 @@ class WebServer:
                 backup_path = self.bot.db.backup()
                 if backup_path:
                     return jsonify({'success': True, 'backup': backup_path})
-                return jsonify({'success': False, 'error': 'Erro ao criar backup'}), 500
+                else:
+                    return jsonify({'success': False, 'error': 'Erro ao criar backup'}), 500
             except Exception as e:
+                logger.error(f"Erro ao criar backup: {e}")
                 return jsonify({'success': False, 'error': str(e)}), 500
         
         @self.app.route('/api/backup/download/<filename>')
@@ -278,6 +207,7 @@ class WebServer:
             if auth != self.web_password:
                 return jsonify({'error': 'Não autorizado'}), 401
             
+            # Validar nome do arquivo
             if not filename.startswith('backup_') or not filename.endswith('.db'):
                 return jsonify({'error': 'Arquivo inválido'}), 400
             
@@ -286,12 +216,37 @@ class WebServer:
             if not os.path.exists(filepath):
                 return jsonify({'error': 'Arquivo não encontrado'}), 404
             
-            return await send_file(filepath, mimetype='application/octet-stream', 
-                                  as_attachment=True, attachment_filename=filename)
+            try:
+                return await send_file(
+                    filepath,
+                    mimetype='application/octet-stream',
+                    as_attachment=True,
+                    attachment_filename=filename
+                )
+            except Exception as e:
+                logger.error(f"Erro ao enviar backup: {e}")
+                return jsonify({'error': str(e)}), 500
+        
+        @self.app.route('/api/export/json', methods=['POST'])
+        async def api_export_json():
+            """API para exportar dados em JSON"""
+            auth = request.headers.get('Authorization') or request.cookies.get('auth')
+            if auth != self.web_password:
+                return jsonify({'error': 'Não autorizado'}), 401
+            
+            try:
+                json_path = self.bot.db.export_json()
+                if json_path:
+                    return jsonify({'success': True, 'file': json_path})
+                else:
+                    return jsonify({'success': False, 'error': 'Erro ao exportar'}), 500
+            except Exception as e:
+                logger.error(f"Erro ao exportar JSON: {e}")
+                return jsonify({'success': False, 'error': str(e)}), 500
         
         @self.app.route('/health')
         async def health():
-            """Health check"""
+            """Health check para Railway"""
             return jsonify({
                 'status': 'online',
                 'guilds': len(self.bot.guilds),
@@ -299,7 +254,7 @@ class WebServer:
                 'oauth_users': self.bot.db.get_stats()['total_users']
             })
         
-        # ===================== STRIPE WEBHOOKS =====================
+        # ===================== ROTAS DO STRIPE =====================
         @self.app.route('/webhook/stripe', methods=['POST'])
         async def stripe_webhook():
             """Webhook do Stripe"""
@@ -309,31 +264,39 @@ class WebServer:
             try:
                 payments_cog = self.bot.get_cog('Payments')
                 if not payments_cog or not payments_cog.webhook_secret:
+                    logger.error("Webhook secret não configurado")
                     return jsonify({'error': 'Configuration error'}), 500
                 
-                event = stripe.Webhook.construct_event(payload, sig_header, payments_cog.webhook_secret)
-            except:
-                return jsonify({'error': 'Invalid request'}), 400
+                event = stripe.Webhook.construct_event(
+                    payload, sig_header, payments_cog.webhook_secret
+                )
+            except ValueError:
+                logger.error("Payload inválido do Stripe")
+                return jsonify({'error': 'Invalid payload'}), 400
+            except stripe.error.SignatureVerificationError:
+                logger.error("Assinatura inválida do Stripe")
+                return jsonify({'error': 'Invalid signature'}), 400
             
             if event['type'] == 'checkout.session.completed':
                 session = event['data']['object']
                 payments_cog = self.bot.get_cog('Payments')
                 if payments_cog:
                     await payments_cog.handle_successful_payment(session)
+                    logger.info(f"✅ Pagamento processado: {session['id']}")
             
             return jsonify({'success': True})
-        
+
         @self.app.route('/payment/success')
         async def payment_success():
             """Página de sucesso do pagamento"""
+            # ✅ CORRIGIDO: Nome correto do template
             return await render_template('payment_success.html')
-        
+
         @self.app.route('/payment/cancel')
         async def payment_cancel():
-            """Página de cancelamento"""
+            """Página de cancelamento do pagamento"""
             return await render_template('payment_cancel.html')
     
-    # ===================== MÉTODOS AUXILIARES =====================
     async def exchange_code(self, code):
         """Trocar código por tokens"""
         data = {
@@ -344,18 +307,30 @@ class WebServer:
             'redirect_uri': self.redirect_uri
         }
         
+        headers = {'Content-Type': 'application/x-www-form-urlencoded'}
+        
         async with aiohttp.ClientSession() as session:
-            async with session.post(f'{self.api_endpoint}/oauth2/token',
-                                   data=data,
-                                   headers={'Content-Type': 'application/x-www-form-urlencoded'}) as resp:
-                return await resp.json() if resp.status == 200 else None
+            async with session.post(
+                f'{self.api_endpoint}/oauth2/token',
+                data=data,
+                headers=headers
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return None
     
     async def get_user_info(self, access_token):
         """Obter informações do usuário"""
+        headers = {'Authorization': f'Bearer {access_token}'}
+        
         async with aiohttp.ClientSession() as session:
-            async with session.get(f'{self.api_endpoint}/users/@me',
-                                  headers={'Authorization': f'Bearer {access_token}'}) as resp:
-                return await resp.json() if resp.status == 200 else None
+            async with session.get(
+                f'{self.api_endpoint}/users/@me',
+                headers=headers
+            ) as resp:
+                if resp.status == 200:
+                    return await resp.json()
+                return None
     
     async def add_user_to_guild(self, user_id, guild_id, access_token):
         """Adicionar usuário ao servidor"""
@@ -364,9 +339,14 @@ class WebServer:
             'Content-Type': 'application/json'
         }
         
+        data = {'access_token': access_token}
+        
         async with aiohttp.ClientSession() as session:
-            async with session.put(f'{self.api_endpoint}/guilds/{guild_id}/members/{user_id}',
-                                  headers=headers, json={'access_token': access_token}) as resp:
+            async with session.put(
+                f'{self.api_endpoint}/guilds/{guild_id}/members/{user_id}',
+                headers=headers,
+                json=data
+            ) as resp:
                 return resp.status in [200, 201, 204]
     
     async def start(self):
