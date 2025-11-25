@@ -69,7 +69,8 @@ class PandaBot(commands.Bot):
             'cogs.announcements',
             'cogs.polls',
             'cogs.events',
-            'cogs.payments'
+            'cogs.payments',
+            'cogs.products'
         ]
         
         for ext in extensions:
@@ -270,4 +271,5 @@ def main():
             logger.error(f"Erro ao fechar banco: {e}")
 
 if __name__ == "__main__":
+
     main()
