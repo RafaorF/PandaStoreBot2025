@@ -16,6 +16,28 @@ class Products(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
         self.cart_category_id = 1160644873272172627
+        self._create_products_table()
+    
+    def _create_products_table(self):
+        """Criar tabela de produtos no banco de dados"""
+        try:
+            self.bot.db.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS products (
+                    product_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT UNIQUE NOT NULL,
+                    eur_cents INTEGER NOT NULL,
+                    brl_cents INTEGER NOT NULL,
+                    description TEXT NOT NULL,
+                    image_url TEXT NOT NULL,
+                    created_at INTEGER NOT NULL,
+                    created_by TEXT NOT NULL,
+                    updated_at INTEGER DEFAULT NULL
+                )
+            """)
+            self.bot.db.conn.commit()
+            logger.info("✅ Tabela de produtos verificada/criada")
+        except Exception as e:
+            logger.error(f"Erro ao criar tabela de produtos: {e}")
     
     @app_commands.command(name="criarproduto", description="Criar produto para venda")
     @app_commands.describe(
@@ -69,6 +91,16 @@ class Products(commands.Cog):
                 )
                 return await interaction.response.send_message(embed=embed, ephemeral=True)
             
+            # Verificar se produto já existe
+            existing = self._get_product_by_name(nome)
+            if existing:
+                embed = EmbedBuilder.error(
+                    "Produto Já Existe",
+                    f"Já existe um produto com o nome **{nome}**.\nUse `/produtoeditar` para editá-lo ou escolha outro nome.",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+                return await interaction.response.send_message(embed=embed, ephemeral=True)
+            
             await interaction.response.defer()
             
             # Criar embed do produto
@@ -116,6 +148,16 @@ class Products(commands.Cog):
             
             # Enviar produto no canal
             await canal.send(embed=embed, view=view)
+            
+            # Salvar produto no banco de dados
+            self._save_product(
+                nome,
+                eur_cents,
+                brl_cents,
+                descricao,
+                imagem_url,
+                str(interaction.user.id)
+            )
             
             # Confirmar criação
             success_embed = EmbedBuilder.success(
