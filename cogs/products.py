@@ -448,6 +448,284 @@ class Products(commands.Cog):
             return False
 
 
+class ProductEditView(discord.ui.View):
+    """View para editar ou apagar produto"""
+    
+    def __init__(self, bot, product):
+        super().__init__(timeout=300)
+        self.bot = bot
+        self.product = product
+    
+    @discord.ui.button(label="Editar Preço EUR", style=discord.ButtonStyle.primary, emoji="💶", row=0)
+    async def edit_eur(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = EditPriceModal(self.bot, self.product, 'eur')
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Editar Preço BRL", style=discord.ButtonStyle.primary, emoji="💵", row=0)
+    async def edit_brl(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = EditPriceModal(self.bot, self.product, 'brl')
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Editar Descrição", style=discord.ButtonStyle.primary, emoji="📝", row=1)
+    async def edit_description(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = EditDescriptionModal(self.bot, self.product)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Editar Imagem", style=discord.ButtonStyle.primary, emoji="🖼️", row=1)
+    async def edit_image(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = EditImageModal(self.bot, self.product)
+        await interaction.response.send_modal(modal)
+    
+    @discord.ui.button(label="Apagar Produto", style=discord.ButtonStyle.danger, emoji="🗑️", row=2)
+    async def delete_product(self, interaction: discord.Interaction, button: discord.ui.Button):
+        confirm_view = ConfirmDeleteView(self.bot, self.product)
+        
+        embed = EmbedBuilder.warning(
+            "Confirmar Exclusão",
+            f"Tem certeza que deseja **apagar** o produto **{self.product['name']}**?\n\n⚠️ Esta ação é **irreversível**!",
+            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+        )
+        
+        await interaction.response.send_message(embed=embed, view=confirm_view, ephemeral=True)
+
+
+class EditPriceModal(discord.ui.Modal):
+    """Modal para editar preço"""
+    
+    def __init__(self, bot, product, currency):
+        super().__init__(title=f"Editar Preço {currency.upper()}")
+        self.bot = bot
+        self.product = product
+        self.currency = currency
+        
+        current_price = (product['eur_cents'] if currency == 'eur' else product['brl_cents']) / 100
+        
+        self.price = discord.ui.TextInput(
+            label=f"Novo Preço em {currency.upper()}",
+            placeholder=f"Ex: {current_price:.2f}",
+            style=discord.TextStyle.short,
+            required=True,
+            max_length=10
+        )
+        self.add_item(self.price)
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            price_float = float(self.price.value)
+            
+            if price_float <= 0:
+                raise ValueError("Preço deve ser maior que zero")
+            
+            price_cents = int(price_float * 100)
+            
+            # Atualizar no banco
+            products_cog = self.bot.get_cog('Products')
+            key = 'eur_cents' if self.currency == 'eur' else 'brl_cents'
+            
+            success = products_cog._update_product(
+                self.product['product_id'],
+                **{key: price_cents}
+            )
+            
+            if success:
+                embed = EmbedBuilder.success(
+                    "Preço Atualizado",
+                    f"Preço em {self.currency.upper()} atualizado para: **{'€' if self.currency == 'eur' else 'R$'} {price_float:.2f}**",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+                
+                # Log
+                log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+                if log_channel:
+                    log_embed = EmbedBuilder.info(
+                        "💰 Produto Editado",
+                        f"**Produto:** {self.product['name']}\n**Campo:** Preço {self.currency.upper()}\n**Novo Valor:** {'€' if self.currency == 'eur' else 'R$'} {price_float:.2f}\n**Editado por:** {interaction.user.mention}",
+                        footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                    )
+                    await log_channel.send(embed=log_embed)
+            else:
+                embed = EmbedBuilder.error(
+                    "Erro",
+                    "Não foi possível atualizar o preço.",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+            
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+            
+        except ValueError as e:
+            embed = EmbedBuilder.error(
+                "Valor Inválido",
+                f"Digite um número válido. Erro: {str(e)}",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class EditDescriptionModal(discord.ui.Modal, title="Editar Descrição"):
+    """Modal para editar descrição"""
+    
+    description = discord.ui.TextInput(
+        label="Nova Descrição",
+        placeholder="Digite a nova descrição do produto...",
+        style=discord.TextStyle.paragraph,
+        required=True,
+        max_length=2000
+    )
+    
+    def __init__(self, bot, product):
+        super().__init__()
+        self.bot = bot
+        self.product = product
+        self.description.default = product['description']
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        products_cog = self.bot.get_cog('Products')
+        
+        success = products_cog._update_product(
+            self.product['product_id'],
+            description=self.description.value
+        )
+        
+        if success:
+            embed = EmbedBuilder.success(
+                "Descrição Atualizada",
+                f"Descrição do produto **{self.product['name']}** foi atualizada!",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            
+            # Log
+            log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = EmbedBuilder.info(
+                    "📝 Produto Editado",
+                    f"**Produto:** {self.product['name']}\n**Campo:** Descrição\n**Editado por:** {interaction.user.mention}",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+                await log_channel.send(embed=log_embed)
+        else:
+            embed = EmbedBuilder.error(
+                "Erro",
+                "Não foi possível atualizar a descrição.",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class EditImageModal(discord.ui.Modal, title="Editar Imagem"):
+    """Modal para editar URL da imagem"""
+    
+    image_url = discord.ui.TextInput(
+        label="Nova URL da Imagem",
+        placeholder="https://exemplo.com/imagem.png",
+        style=discord.TextStyle.short,
+        required=True,
+        max_length=500
+    )
+    
+    def __init__(self, bot, product):
+        super().__init__()
+        self.bot = bot
+        self.product = product
+        self.image_url.default = product['image_url']
+    
+    async def on_submit(self, interaction: discord.Interaction):
+        # Validar URL
+        if not self.image_url.value.startswith(('http://', 'https://')):
+            embed = EmbedBuilder.error(
+                "URL Inválida",
+                "A URL da imagem deve começar com http:// ou https://",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        products_cog = self.bot.get_cog('Products')
+        
+        success = products_cog._update_product(
+            self.product['product_id'],
+            image_url=self.image_url.value
+        )
+        
+        if success:
+            embed = EmbedBuilder.success(
+                "Imagem Atualizada",
+                f"URL da imagem do produto **{self.product['name']}** foi atualizada!",
+                image=self.image_url.value,
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            
+            # Log
+            log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = EmbedBuilder.info(
+                    "🖼️ Produto Editado",
+                    f"**Produto:** {self.product['name']}\n**Campo:** Imagem\n**Editado por:** {interaction.user.mention}",
+                    thumbnail=self.image_url.value,
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+                await log_channel.send(embed=log_embed)
+        else:
+            embed = EmbedBuilder.error(
+                "Erro",
+                "Não foi possível atualizar a imagem.",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+        
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+
+class ConfirmDeleteView(discord.ui.View):
+    """View para confirmar exclusão de produto"""
+    
+    def __init__(self, bot, product):
+        super().__init__(timeout=60)
+        self.bot = bot
+        self.product = product
+    
+    @discord.ui.button(label="Sim, Apagar", style=discord.ButtonStyle.danger, emoji="✅")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        products_cog = self.bot.get_cog('Products')
+        
+        success = products_cog._delete_product(self.product['product_id'])
+        
+        if success:
+            embed = EmbedBuilder.success(
+                "Produto Apagado",
+                f"O produto **{self.product['name']}** foi apagado com sucesso!",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            
+            # Log
+            log_channel = self.bot.get_channel(Config.LOG_CHANNEL_ID)
+            if log_channel:
+                log_embed = EmbedBuilder.warning(
+                    "🗑️ Produto Apagado",
+                    f"**Produto:** {self.product['name']}\n**Apagado por:** {interaction.user.mention}",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+                await log_channel.send(embed=log_embed)
+        else:
+            embed = EmbedBuilder.error(
+                "Erro",
+                "Não foi possível apagar o produto.",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+        
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+    
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary, emoji="❌")
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = EmbedBuilder.info(
+            "Cancelado",
+            "A exclusão do produto foi cancelada.",
+            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+        )
+        
+        await interaction.response.edit_message(embed=embed, view=None)
+        self.stop()
+
+
 class ProductView(discord.ui.View):
     """View persistente com botão de compra"""
     
@@ -460,37 +738,6 @@ class ProductView(discord.ui.View):
         self.description = description
         self.image_url = image_url
         self.cart_category_id = cart_category_id
-    
-    @discord.ui.button(
-        label="Comprar",
-        style=discord.ButtonStyle.success,
-        emoji="🛒",
-        custom_id="product:buy"
-    )
-    async def buy_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        """Botão de compra"""
-        
-        # Verificar blacklist
-        if self.bot.db.is_blacklisted(str(interaction.user.id)):
-            embed = EmbedBuilder.error(
-                "Acesso Negado",
-                "Você está na blacklist e não pode realizar compras.",
-                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
-            )
-            return await interaction.response.send_message(embed=embed, ephemeral=True)
-        
-        # Mostrar modal para escolher quantidade e moeda
-        modal = QuantityModal(
-            self.bot,
-            self.product_name,
-            self.eur_cents,
-            self.brl_cents,
-            self.description,
-            self.image_url,
-            self.cart_category_id
-        )
-        await interaction.response.send_modal(modal)
-
 
 class QuantityModal(discord.ui.Modal, title="Finalizar Compra"):
     """Modal para escolher quantidade e moeda"""
