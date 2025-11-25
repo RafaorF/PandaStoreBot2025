@@ -204,6 +204,250 @@ class Products(commands.Cog):
             await interaction.followup.send(embed=embed, ephemeral=True)
 
 
+    @app_commands.command(name="enviarproduto", description="Enviar produto já criado")
+    @app_commands.describe(
+        nome="Nome do produto",
+        canal="Canal onde enviar"
+    )
+    @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
+    async def enviarproduto_command(
+        self,
+        interaction: discord.Interaction,
+        nome: str,
+        canal: discord.TextChannel
+    ):
+        """Enviar produto existente"""
+        
+        # Buscar produto
+        product = self._get_product_by_name(nome)
+        
+        if not product:
+            # Listar produtos disponíveis
+            all_products = self._get_all_products()
+            
+            if not all_products:
+                embed = EmbedBuilder.error(
+                    "Nenhum Produto",
+                    "Não há produtos cadastrados.\nUse `/criarproduto` para criar um.",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+            else:
+                products_list = "\n".join([f"• **{p['name']}**" for p in all_products])
+                embed = EmbedBuilder.error(
+                    "Produto Não Encontrado",
+                    f"Produto **{nome}** não existe.\n\n**Produtos disponíveis:**\n{products_list}",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+            
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        try:
+            await interaction.response.defer()
+            
+            # Converter centavos para float
+            eur_float = product['eur_cents'] / 100
+            brl_float = product['brl_cents'] / 100
+            
+            # Criar embed do produto
+            embed = EmbedBuilder.create_embed(
+                f"🛍️ {product['name']}",
+                product['description'],
+                color=Config.COLORS['panda'],
+                image=product['image_url'],
+                thumbnail=interaction.guild.icon.url if interaction.guild.icon else None,
+                fields=[
+                    {
+                        "name": "💶 Preço (EUR)",
+                        "value": f"**€{eur_float:.2f}**",
+                        "inline": True
+                    },
+                    {
+                        "name": "💵 Preço (BRL)",
+                        "value": f"**R$ {brl_float:.2f}**",
+                        "inline": True
+                    },
+                    {
+                        "name": "📦 Status",
+                        "value": "✅ **Disponível**",
+                        "inline": True
+                    },
+                    {
+                        "name": "ℹ️ Como Comprar",
+                        "value": "Clique no botão **🛒 Comprar** abaixo para iniciar sua compra!",
+                        "inline": False
+                    }
+                ],
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            
+            # Criar view com botão de compra
+            view = ProductView(
+                self.bot,
+                product['name'],
+                product['eur_cents'],
+                product['brl_cents'],
+                product['description'],
+                product['image_url'],
+                self.cart_category_id
+            )
+            
+            # Enviar
+            await canal.send(embed=embed, view=view)
+            
+            # Confirmar
+            success_embed = EmbedBuilder.success(
+                "Produto Enviado",
+                f"✅ Produto **{product['name']}** enviado em {canal.mention}!",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            await interaction.followup.send(embed=success_embed, ephemeral=True)
+            
+        except Exception as e:
+            logger.error(f"Erro ao enviar produto: {e}")
+            embed = EmbedBuilder.error(
+                "Erro",
+                f"Não foi possível enviar o produto:\n```{str(e)}```",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+
+    @app_commands.command(name="produtoeditar", description="Editar ou apagar produto")
+    @app_commands.describe(nome="Nome do produto")
+    @app_commands.check(lambda interaction: Permissions.is_staff(interaction.user))
+    async def produtoeditar_command(self, interaction: discord.Interaction, nome: str):
+        """Painel de edição de produto"""
+        
+        # Buscar produto
+        product = self._get_product_by_name(nome)
+        
+        if not product:
+            all_products = self._get_all_products()
+            
+            if not all_products:
+                embed = EmbedBuilder.error(
+                    "Nenhum Produto",
+                    "Não há produtos cadastrados.",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+            else:
+                products_list = "\n".join([f"• **{p['name']}**" for p in all_products])
+                embed = EmbedBuilder.error(
+                    "Produto Não Encontrado",
+                    f"Produto **{nome}** não existe.\n\n**Produtos disponíveis:**\n{products_list}",
+                    footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+                )
+            
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # Criar embed com info do produto
+        eur_float = product['eur_cents'] / 100
+        brl_float = product['brl_cents'] / 100
+        
+        embed = EmbedBuilder.create_embed(
+            f"✏️ Editar Produto: {product['name']}",
+            "Use os botões abaixo para editar ou apagar este produto.",
+            color=Config.COLORS['info'],
+            thumbnail=product['image_url'],
+            fields=[
+                {
+                    "name": "💶 Preço EUR",
+                    "value": f"€{eur_float:.2f}",
+                    "inline": True
+                },
+                {
+                    "name": "💵 Preço BRL",
+                    "value": f"R$ {brl_float:.2f}",
+                    "inline": True
+                },
+                {
+                    "name": "📝 Descrição",
+                    "value": product['description'][:100] + "..." if len(product['description']) > 100 else product['description'],
+                    "inline": False
+                },
+                {
+                    "name": "🖼️ URL da Imagem",
+                    "value": f"[Clique aqui]({product['image_url']})",
+                    "inline": False
+                }
+            ],
+            footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+        )
+        
+        view = ProductEditView(self.bot, product)
+        await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+
+    def _save_product(self, name, eur_cents, brl_cents, description, image_url, created_by):
+        """Salvar produto no banco"""
+        try:
+            self.bot.db.cursor.execute("""
+                INSERT INTO products (name, eur_cents, brl_cents, description, image_url, created_at, created_by)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (name, eur_cents, brl_cents, description, image_url, int(datetime.utcnow().timestamp()), created_by))
+            self.bot.db.conn.commit()
+            logger.info(f"✅ Produto '{name}' salvo no banco")
+        except Exception as e:
+            logger.error(f"Erro ao salvar produto: {e}")
+            self.bot.db.conn.rollback()
+    
+    def _get_product_by_name(self, name):
+        """Buscar produto por nome"""
+        try:
+            self.bot.db.cursor.execute("SELECT * FROM products WHERE name = ?", (name,))
+            row = self.bot.db.cursor.fetchone()
+            return dict(row) if row else None
+        except Exception as e:
+            logger.error(f"Erro ao buscar produto: {e}")
+            return None
+    
+    def _get_all_products(self):
+        """Buscar todos os produtos"""
+        try:
+            self.bot.db.cursor.execute("SELECT * FROM products ORDER BY name")
+            return [dict(row) for row in self.bot.db.cursor.fetchall()]
+        except Exception as e:
+            logger.error(f"Erro ao buscar produtos: {e}")
+            return []
+    
+    def _update_product(self, product_id, **kwargs):
+        """Atualizar produto"""
+        try:
+            fields = []
+            values = []
+            
+            for key, value in kwargs.items():
+                fields.append(f"{key} = ?")
+                values.append(value)
+            
+            fields.append("updated_at = ?")
+            values.append(int(datetime.utcnow().timestamp()))
+            
+            values.append(product_id)
+            
+            query = f"UPDATE products SET {', '.join(fields)} WHERE product_id = ?"
+            self.bot.db.cursor.execute(query, values)
+            self.bot.db.conn.commit()
+            logger.info(f"✅ Produto ID {product_id} atualizado")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao atualizar produto: {e}")
+            self.bot.db.conn.rollback()
+            return False
+    
+    def _delete_product(self, product_id):
+        """Deletar produto"""
+        try:
+            self.bot.db.cursor.execute("DELETE FROM products WHERE product_id = ?", (product_id,))
+            self.bot.db.conn.commit()
+            logger.info(f"✅ Produto ID {product_id} deletado")
+            return True
+        except Exception as e:
+            logger.error(f"Erro ao deletar produto: {e}")
+            self.bot.db.conn.rollback()
+            return False
+
+
 class ProductView(discord.ui.View):
     """View persistente com botão de compra"""
     
