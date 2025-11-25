@@ -738,6 +738,36 @@ class ProductView(discord.ui.View):
         self.description = description
         self.image_url = image_url
         self.cart_category_id = cart_category_id
+    
+    @discord.ui.button(
+        label="Comprar",
+        style=discord.ButtonStyle.success,
+        emoji="🛒",
+        custom_id="product:buy"
+    )
+    async def buy_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        """Botão de compra"""
+        
+        # Verificar blacklist
+        if self.bot.db.is_blacklisted(str(interaction.user.id)):
+            embed = EmbedBuilder.error(
+                "Acesso Negado",
+                "Você está na blacklist e não pode realizar compras.",
+                footer_icon=interaction.guild.icon.url if interaction.guild.icon else None
+            )
+            return await interaction.response.send_message(embed=embed, ephemeral=True)
+        
+        # Mostrar modal para escolher quantidade e moeda
+        modal = QuantityModal(
+            self.bot,
+            self.product_name,
+            self.eur_cents,
+            self.brl_cents,
+            self.description,
+            self.image_url,
+            self.cart_category_id
+        )
+        await interaction.response.send_modal(modal)
 
 class QuantityModal(discord.ui.Modal, title="Finalizar Compra"):
     """Modal para escolher quantidade e moeda"""
